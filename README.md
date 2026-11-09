@@ -105,6 +105,9 @@ it does not replace an existing `diff-review` installation.
 - Split old/new diff, stacked on narrow windows. Click a line number to comment.
 - Inline/file comments with immediate editing and deletion, and an overall note.
 - Reviewed markers, comment counts, wrapping and expandable unchanged context.
+- Dependency-free syntax colouring for C#, JS/TS, JSON, CSS, markup, Python,
+  shell, YAML, SQL and Markdown: a ~450-line local tokenizer, no vendored
+  editor and no packages. Unsupported files render as plain text.
 - Browser Copy feedback action; no cross-OS clipboard helper.
 - Tab-scoped refresh recovery for comments, notes, selection and reviewed markers.
 

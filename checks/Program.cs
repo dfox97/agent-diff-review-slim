@@ -243,6 +243,16 @@ await Check("HTTP security, lazy load, held connection and successful clean stdo
     Assert((await host.Get("/api/session", origin: "http://evil.example")).StatusCode == HttpStatusCode.Forbidden);
     Assert((await host.Get("/api/session", host: "evil.example")).StatusCode == HttpStatusCode.Forbidden);
     Assert((await host.Get("/README.md")).StatusCode == HttpStatusCode.NotFound);
+    // Every published browser asset must be reachable; adding a script to wwwroot
+    // without adding it to the server's allowlist silently breaks the UI.
+    var assets = Directory.GetFiles(Path.Combine(AppContext.BaseDirectory, "wwwroot"));
+    Assert(assets.Length > 2, "Published browser assets are missing from the harness output.");
+    foreach (var asset in assets)
+    {
+        string name = Path.GetFileName(asset);
+        using var response = await host.Get(name == "index.html" ? "/" : "/" + name);
+        Assert(response.IsSuccessStatusCode, "Unserved browser asset: " + name);
+    }
     Assert((await host.Get("/api/files/unknown")).StatusCode == HttpStatusCode.BadRequest);
     using (var nonJson = await host.Post("/api/cancel", "{}", "text/plain")) Assert(nonJson.StatusCode == HttpStatusCode.UnsupportedMediaType);
     using (var oversized = await host.Post("/api/submit", new string('x', 256001))) Assert(oversized.StatusCode == HttpStatusCode.RequestEntityTooLarge);

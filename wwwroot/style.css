@@ -46,6 +46,22 @@ h1 { font-size: .95rem; margin: 0; overflow-wrap: anywhere; }
 .line-number { border: 0; border-radius: 0; padding: 0 .4rem; font: 12px/1.65 ui-monospace, Consolas, monospace; background: transparent; text-align: right; color: #99a8bc; }
 pre { margin: 0; padding: 0 .5rem; overflow-x: auto; font: 12px/1.65 ui-monospace, Consolas, monospace; white-space: pre; min-height: 1.65em; }
 .wrap pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Token colours: VS Code Dark Modern defaults, applied by highlight.js. */
+.tk-com { color: #6a9955; }
+.tk-str { color: #ce9178; }
+.tk-num { color: #b5cea8; }
+.tk-kw { color: #569cd6; }
+.tk-ctl { color: #c586c0; }
+.tk-type { color: #4ec9b0; }
+.tk-fn { color: #dcdcaa; }
+.tk-prop { color: #9cdcfe; }
+.tk-const { color: #4fc1ff; }
+.tk-pre { color: #c586c0; }
+.tk-pun { color: #9aa9bc; }
+.tk-tag { color: #569cd6; }
+.tk-attr { color: #9cdcfe; }
+.tk-regex { color: #d16969; }
+.tk-esc { color: #d7ba7d; }
 .newline-note { color: #d4bc82; font-size: .7rem; grid-column: 2; padding: 0 .5rem; }
 .comment { grid-column: 1 / -1; margin: .5rem; border: 1px solid #49648b; border-radius: 5px; padding: .6rem; background: #192435; }
 .comment label { color: #b8d6ff; font-size: .8rem; margin-bottom: .3rem; }

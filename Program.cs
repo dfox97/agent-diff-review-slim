@@ -108,7 +108,7 @@ public static class Program
                     await context.Response.WriteAsJsonAsync(new { error = error is JsonException ? "Malformed JSON request." : error.Message });
                 }
             });
-            foreach (var asset in new[] { ("/", "index.html", "text/html"), ("/app.js", "app.js", "text/javascript"), ("/style.css", "style.css", "text/css") })
+            foreach (var asset in new[] { ("/", "index.html", "text/html"), ("/app.js", "app.js", "text/javascript"), ("/highlight.js", "highlight.js", "text/javascript"), ("/style.css", "style.css", "text/css") })
             {
                 string path = Path.Combine(AppContext.BaseDirectory, "wwwroot", asset.Item2);
                 if (!File.Exists(path)) throw new IOException("Missing published browser assets; build/publish the application first.");

@@ -6,7 +6,9 @@
   let token = '', metadata = null, current = null, generation = 0;
   let terminal = false, busy = false, connected = false, storageAvailable = true;
   let selected = null, comments = [], reviewed = new Set(), expanded = new Set();
+  let tokens = null;
   const scroll = new Map();
+  const escapeText = text => text.replace(/[&<>]/g, c => c === '&' ? '&amp;' : c === '<' ? '&lt;' : '&gt;');
 
   function node(tag, className, text) {
     const element = document.createElement(tag);
@@ -121,7 +123,13 @@
     number.dataset.line = String(line); number.dataset.side = side;
     number.setAttribute('aria-label', `Comment on ${side} line ${line}`);
     number.title = `Add comment on ${side} line ${line}`;
-    container.append(number, node('pre', '', row.text.replace(/\r$/, '')));
+    const code = node('pre');
+    const highlighted = tokens ? (side === 'old' ? tokens.old : tokens.new).get(row) : undefined;
+    // Pre-highlighted rows are escaped by the highlighter; plain rows escape here.
+    // Anything other than a string (missing highlighter, uncoloured language) must
+    // fall back to text, or the row renders empty.
+    code.innerHTML = typeof highlighted === 'string' ? highlighted : escapeText(row.text.replace(/\r$/, ''));
+    container.append(number, code);
     if (side === 'old' ? row.oldNoNewline : row.newNoNewline)
       container.append(node('span', 'newline-note', 'No final newline'));
     for (const comment of comments.filter(c => c.fileId === selected && c.side === side && c.startLine === line))
@@ -190,7 +198,10 @@
     try {
       const result = await api('/api/files/' + encodeURIComponent(id));
       if (request !== generation) return;
-      current = result; renderDiff(); $('viewport').scrollTop = scroll.get(id) || 0;
+      current = result;
+      tokens = globalThis.DiffReviewHighlight
+        ? globalThis.DiffReviewHighlight.tokenize(file.newPath || file.oldPath, result.rows) : null;
+      renderDiff(); $('viewport').scrollTop = scroll.get(id) || 0;
     } catch (error) {
       if (request !== generation) return;
       const notice = node('div', 'notice warning', error.message), retry = node('button', '', 'Retry');
