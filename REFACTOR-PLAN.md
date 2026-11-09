@@ -1,7 +1,30 @@
 # Agent Diff Review Slim implementation plan
 
-Status: planning baseline only. No application or regression harness has been
-implemented, built or tested in this repository yet.
+Status: first CLI/UI implementation slice is working locally on Windows with
+.NET 10. This remains a target design, not a claim that every feature below is
+implemented or release-verified. Claude hook mode, history scopes and actual
+work-container verification are still pending.
+
+### Implementation progress
+
+Implemented: `diff-review-slim open`, working-tree and committed base comparisons,
+root/unborn working-tree handling, safe lazy captures, Git-generated full-context
+patches, a split/narrow diff UI, inline/file/overall comments, reviewed markers,
+filter/tree/wrap/context controls, Markdown/JSON/atomic file output, private HTTP
+session protection, browser-disconnect cancellation and tab-scoped reload recovery.
+Windows Edge/Chrome launch is best-effort through shell registration; no bridge
+or environment installation was added.
+
+A separate dependency-free console harness covers parsing, Git comparisons,
+submission/output and real HTTP/process lifecycle/security paths. Local build,
+publish and JavaScript syntax checks pass. An installed-Edge headless exercise
+verified rendering, comment entry, reviewed state, refresh recovery and submission.
+Filesystem symlink creation is denied for this Windows account, so that check
+is explicitly skipped, not claimed as verified. Native app-window interactions,
+Chrome, Linux/WSL and work-container forwarding still need manual acceptance.
+
+The current slice starts with working-tree/base comparisons as an implementation
+order, not an agreed decision to omit other scopes from the first release.
 
 This is a separate .NET/browser implementation with fresh Git history, not an
 in-place migration of the original application. The original repository remains
@@ -121,11 +144,10 @@ host integrations must not become core build dependencies.
 ## 3. Smallest viable target
 
 One process per review, one repository fixed at launch, one session in memory.
-Use `Microsoft.NET.Sdk.Web`, preferably targeting .NET 10 (`net10.0`).
-.NET 10 is the preferred target for the work version, subject to approval and
-availability in the actual work environment. This repository has no dev-container
-configuration or .NET project, so work-environment support cannot be confirmed
-here. Check the actual container's .NET 10 SDK and ASP.NET Core runtime before
+Use `Microsoft.NET.Sdk.Web`, targeting .NET 10 (`net10.0`). The first implementation
+now uses that target. Work-environment approval and availability remain gates.
+This repository has no dev-container configuration, so actual work-environment
+support cannot be confirmed here. Check the actual container's .NET 10 SDK and ASP.NET Core runtime before
 work-environment verification; if unavailable, flag the blocker rather than
 silently choosing another framework or installing/upgrading the environment.
 Local implementation can use this Windows machine's existing .NET 10 SDK, but
@@ -153,11 +175,14 @@ that does not establish work-container compatibility.
   Confirm the actual forwarding and host-launch mechanisms in the work container
   before promising automatic launch there.
 
-Start with these files:
+Current implementation files (hook mode is still pending):
 
-- `AgentDiffReview.csproj`
-- `Program.cs`: CLI parsing, hook mode, endpoints, session completion and output.
-- `GitDiff.cs`: Git invocation, metadata and patch parsing; small records can live here.
+- `AgentDiffReview.csproj` and `NuGet.Config`: .NET 10 build with no package feeds.
+- `Program.cs`: HTTP host, security boundaries, endpoints, lifecycle and browser launch.
+- `CliOptions.cs`: launch-time CLI options and forwarding validation.
+- `ReviewSession.cs`: completion, comment validation, feedback and atomic output.
+- `GitDiff.cs`: bounded Git invocation, indexing, safe captures and patch parsing.
+- `checks/Checks.csproj` and `checks/Program.cs`: separate dependency-free checks.
 - `wwwroot/index.html`
 - `wwwroot/app.js`
 - `wwwroot/style.css`
@@ -165,7 +190,8 @@ Start with these files:
 
 Keep the licence. Add Claude command/settings files only after verifying the
 installed Claude contract; do not blindly copy the original hook configuration.
-Keep the implementation small; add source files when readability requires them. No controllers, service interfaces,
+Keep the implementation small; add source files when readability requires them.
+No controllers, service interfaces,
 repository abstractions, database, DI layers, message bus or hosted workers.
 Do not use the generated OpenAPI/Swagger package scaffolding.
 
@@ -250,7 +276,10 @@ Use one available configured port per process; fail clearly on a collision.
 
 Preserve:
 
-`diff-review open [base] [--base branch] [--out path]`
+`diff-review-slim open [base] [--base branch] [--out path]`
+
+The executable deliberately differs from the original `diff-review` name for
+safe coexistence. Hook/adaptor configuration must invoke slim explicitly.
 
 - Default output stays Markdown so existing callers keep working.
 - `--format json` returns a versioned object with session ID, submitted status,
@@ -399,9 +428,10 @@ Claude verification.
   CPU on representative small/large reviews. No guaranteed RAM figure: Edge is
   still a multiprocess browser, and app mode mainly changes its window chrome.
 
-No tests are added or run for this documentation-only planning work. The
-implementation will use normal build checks, the small dependency-free regression
-harness described above and manual workflow verification.
+The first implementation now uses normal build checks and the dependency-free
+regression harness described above. The installed Edge was exercised locally;
+remaining manual acceptance is explicitly listed in README. Do not treat these
+local checks as work-container or Claude-hook acceptance.
 
 ## 5. Recommendation and difficult parity
 
@@ -426,7 +456,8 @@ against the organisation's actual process.
 - Installed Claude version, supported hook event/fields and blocking semantics.
 - Working-tree capture/change-detection details and explicit behaviour at the
   session memory cap; do not silently change contents beneath comment anchors.
-- Executable naming/installation for safe coexistence with the original tool.
+- Installation/publishing workflow for work use. The executable name is now
+  `diff-review-slim`; do not overwrite the original `diff-review` installation.
 
 ## References
 

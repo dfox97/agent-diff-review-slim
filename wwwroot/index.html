@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent Diff Review Slim</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="toolbar">
+    <div><strong>Diff Review <span class="muted">Slim</span></strong><div id="repository" class="muted"></div></div>
+    <div class="actions"><button id="copy" disabled>Copy feedback</button><button id="cancel" disabled>Cancel</button><button id="finish" class="primary" disabled>Finish review</button></div>
+  </header>
+  <div id="banner" role="status" aria-live="polite">Connecting to review…</div>
+  <main>
+    <aside>
+      <label for="filter">Files <span id="counts" class="muted"></span></label>
+      <input id="filter" type="search" placeholder="Filter paths…" autocomplete="off">
+      <nav id="files" aria-label="Review files"></nav>
+      <section class="overall"><label for="overall">Overall review note</label><textarea id="overall" maxlength="16000" rows="6" placeholder="What should Claude address?"></textarea></section>
+    </aside>
+    <section class="review" aria-label="Selected file">
+      <div class="file-toolbar"><h1 id="filename">Choose a file</h1><div class="actions"><label><input id="reviewed" type="checkbox" disabled> Reviewed</label><label><input id="wrap" type="checkbox"> Wrap</label><label><input id="full" type="checkbox"> Full file</label><button id="file-note" disabled>Add file comment</button></div></div>
+      <div id="identity" class="muted"></div>
+      <div id="viewport" tabindex="0"><div id="file-comments"></div><div id="diff" aria-live="polite"></div></div>
+    </section>
+  </main>
+  <footer>Read-only review · Files freeze on first load · Restart the reviewer for newer changes · No LLM calls</footer>
+</body>
+</html>
