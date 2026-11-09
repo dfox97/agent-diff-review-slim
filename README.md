@@ -17,14 +17,15 @@ Working-tree and committed base comparisons are implemented. Claude hook mode,
 history/last-commit/all-files scopes and production dev-container verification
 are still pending. The original application remains independently usable.
 
-The reviewer never invokes an LLM and does not change repository files. Only an
-explicit caller-provided `--out` destination is written on submission.
+The reviewer never invokes an LLM or edits source files. It writes short-lived
+temporary files to calculate diffs and, on submission, an explicit caller-provided
+`--out` destination if requested. Git automatic fetching is disabled.
 
 ## Prerequisites
 
 - Existing **.NET 10 SDK** to build; **ASP.NET Core 10 runtime** to run the
   framework-dependent published application.
-- Git on PATH.
+- Approved Git on PATH, with support for `--no-lazy-fetch` (older versions fail closed).
 - An existing Edge or Chrome browser.
 
 There are **no third-party NuGet packages, npm dependencies or runtime downloads**.
@@ -41,6 +42,9 @@ dotnet build AgentDiffReview.csproj -c Release
 dotnet run --project checks/Checks.csproj -c Release
 dotnet publish AgentDiffReview.csproj -c Release -o artifacts/publish
 ```
+
+Publish into a fresh output directory for deployment; publishing over an older
+release does not remove obsolete files.
 
 The checks are a small .NET console harness, without a test framework or new CI
 setup. They use disposable repositories and run real HTTP/process-level checks.
@@ -63,7 +67,16 @@ is no browser probing, installation or custom Windows/WSL process bridge.
 
 Working-tree review compares pinned HEAD contents to the working tree, combining
 staged/unstaged net changes and including untracked files. Repositories without
-commits are supported.
+commits are supported. A staged deletion with a recreated working file includes
+the replacement content. Unresolved index conflicts are explicitly omitted.
+
+For safety, working-tree review refuses tracked files assigned to a configured
+Git `filter.*.clean` or `filter.*.process` helper, even if those files are unchanged.
+Attributes are inspected without running the helpers. Unused global registrations
+(such as Git for Windows' default LFS configuration) are allowed. For a checkout
+that uses these helpers, use a committed `--base` comparison or an approved
+checkout without them; do not remove required company Git configuration just to
+bypass this check.
 
 For a **committed branch comparison**, use the merge base of a local/origin ref:
 
@@ -72,13 +85,16 @@ dotnet ./artifacts/publish/diff-review-slim.dll open --repo E:/repos/your-projec
 ```
 
 The positional `open main` form is also supported. Both sides are pinned commits;
-dirty working-tree contents and untracked files are excluded. No fetch is run.
+dirty working-tree contents and untracked files are excluded. No fetch is run,
+including Git's implicit lazy fetches in partial clones. Missing local content is
+reported as unavailable; obtain it separately through your approved Git workflow.
 
 ### Feedback contract
 
 - Finish with non-empty feedback: Markdown to stdout, exit `0`.
-- Cancel, close/disconnect, empty submission, timeout or error: no feedback, exit
-  non-zero.
+- Cancel, close/disconnect, empty submission, timeout or error: exit non-zero.
+  No feedback is intentionally emitted before submission. An interrupted/failed
+  output write can leave partial stdout; discard it unless the command exits `0`.
 - URLs and diagnostics go to stderr; hosting/request logs are disabled.
 - The browser waits for acknowledgement and shows a terminal state. Browsers may
   refuse `window.close()`; a completed window can be closed manually.
@@ -160,7 +176,8 @@ acceptance. **pi testing does not establish Claude hook compatibility.**
 ## Browser review
 
 - Collapsible file tree with a subsequence/fuzzy path filter; Escape clears it.
-- Split old/new diff, stacked on narrow windows. Click a line number to comment.
+- Plain-text split old/new diff, stacked on narrow windows. Click a line number
+  to comment. Source is rendered with `textContent`, not HTML or a syntax parser.
 - Inline/file comments with immediate editing and deletion, and an overall note.
 - Reviewed markers, comment counts, wrapping and expandable unchanged context.
 - Browser Copy feedback action; no cross-OS clipboard helper.
@@ -212,9 +229,15 @@ preserves the session. Browser crashes and forwarding loss are cancellation
 outcomes, not successful submissions. There is no heartbeat or polling loop.
 
 `--grace-seconds` configures 1–30 seconds. An overall deadline defaults to 570
-seconds; `--timeout-seconds` configures 1–3600 seconds. Closing before the UI ever
-connects cannot be detected this way; terminal cancellation/deadline remains the
-fallback. Exact native-window lifecycle parity is not promised.
+seconds; `--timeout-seconds` configures 1–3600 seconds. The deadline also bounds
+submission and its acknowledgement, including a blocked stdout consumer. A
+submission is not successful until output writing completes. OS writes cannot
+always be interrupted immediately; forced exit can leave partial stdout or a
+temporary file. Treat feedback as valid only after exit `0`.
+
+Closing before the UI ever connects cannot be detected this way; terminal
+cancellation/deadline remains the fallback. Exact native-window lifecycle parity
+is not promised.
 
 **Verify close/reload/forwarding in the actual work container.** A proxy can hide
 or delay disconnects; local checks do not prove prompt cancellation through it.
@@ -231,8 +254,11 @@ or delay disconnects; local checks do not prove prompt cancellation through it.
 - Working reads reject traversal, symlinks and ancestor reparse points. This is
   intended for an ordinary trusted developer checkout, not a sandbox against a
   malicious local process concurrently swapping filesystem entries.
-- Git child output/time is bounded; external diff/textconv and fsmonitor execution
-  are disabled. Cancellation terminates active Git process trees.
+- Git child output/time is bounded; external diff/textconv, fsmonitor and lazy
+  fetching are disabled. Working-tree review refuses clean/process filters
+  assigned to tracked files; dirty submodule inspection is skipped. Cancellation
+  terminates active Git process trees. Git/configuration/PATH must remain trusted and stable
+  during review; this is not a sandbox for hostile checkouts or local processes.
 - Files are capped at 1,000,000 bytes per side and diffs at 20,000 rows. Binary,
   non-UTF-8, symlink/submodule, unsupported and oversized entries get omission
   messages, not misleading blank diffs. Unmerged files are currently omitted.
@@ -240,7 +266,27 @@ or delay disconnects; local checks do not prove prompt cancellation through it.
   not a guarantee of total .NET/browser process memory. Loaded data is not evicted
   beneath comments; hitting the budget requires a smaller/new review.
 - Captured bytes are briefly written to owned temporary files for Git's diff
-  calculation, then removed. Hard termination cannot guarantee cleanup.
+  calculation, then removed. This byte comparison isolates repository/global Git
+  configuration and attributes so it cannot invoke their conversion helpers.
+  Hard termination cannot guarantee cleanup.
+
+### Workplace approval checklist
+
+No third-party packages does not mean no dependencies or automatic compliance.
+Use approved, patched versions of .NET/ASP.NET Core, Git and the browser. Before
+using proprietary code, confirm that your workplace permits:
+
+- Temporary source copies (hard termination cannot guarantee cleanup).
+- Browser-memory source viewing and potentially disk-backed `sessionStorage`
+  containing notes and the session token.
+- Clipboard use and the extensions/profile of the browser you open.
+- Private local port forwarding, if needed; never a public tunnel or LAN binding.
+- Any feedback ultimately sent to Claude through its approved work configuration.
+
+Launch URLs are credentials. Do not put them in shared logs, tickets or model
+transcripts. The optional pi adapter is not required for a work deployment.
+Claude hook integration remains unimplemented; standalone review does not prove
+compatibility or approval.
 
 ## Verification and next work
 

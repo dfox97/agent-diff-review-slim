@@ -24,7 +24,9 @@ public sealed record CliOptions(
           -h, --help                Show help
 
         stdout contains only submitted non-empty feedback. Cancel/close/empty/error
-        exits non-zero without feedback. URLs and diagnostics go to stderr.
+        exits non-zero. Discard partial output unless exit is 0. URLs and diagnostics
+        go to stderr. Git must support --no-lazy-fetch; working-tree review refuses
+        configured clean/process filters.
         Non-loopback binding is explicit: keep the host-forwarded port private.
         Claude hook mode and history/all-files scopes are not implemented yet.
         """;

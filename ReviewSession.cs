@@ -20,7 +20,7 @@ public sealed class ReviewSession(GitRepository repository, int graceSeconds = 5
     private readonly TaskCompletionSource<TerminalResult> completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private TerminalResult? terminal;
     private long connectionVersion;
-    private bool connected;
+    private bool connected, submitting;
     public GitRepository Repository { get; } = repository;
     public string Id { get; } = Guid.NewGuid().ToString("N");
     public string Token { get; } = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
@@ -120,25 +120,38 @@ public sealed class ReviewSession(GitRepository repository, int graceSeconds = 5
             submission.OverallNote.Trim(), comments);
     }
 
-    public async Task<TerminalResult> SubmitAsync(Submission submission, Func<Feedback, Task> write)
+    public async Task<TerminalResult> SubmitAsync(Submission submission, Func<Feedback, Task> write,
+        CancellationToken cancellation = default)
     {
         var feedback = Validate(submission);
         bool empty = feedback.OverallNote.Length == 0 && feedback.Comments.Count == 0;
         lock (state)
         {
-            if (terminal is not null) throw new InvalidOperationException("Review already completed.");
-            terminal = empty ? new(1, "empty", "No feedback submitted.") : new(0, "submitted", "Review submitted.");
+            if (terminal is not null || submitting) throw new InvalidOperationException("Review already submitted or completed.");
+            submitting = true;
         }
+        var result = empty ? new TerminalResult(1, "empty", "No feedback submitted.")
+            : new TerminalResult(0, "submitted", "Review submitted.");
         if (!empty)
         {
-            try { await write(feedback); }
+            try
+            {
+                // Pipe/filesystem writes can block before returning a Task. Keep them off the
+                // request thread and bound the wait even when the OS cannot cancel the write.
+                await Task.Run(() => write(feedback), cancellation).WaitAsync(cancellation);
+            }
+            catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+            {
+                Cancel("Review cancelled during submission.");
+                throw;
+            }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException)
             {
                 Console.Error.WriteLine("Could not write final feedback: " + e.Message);
-                lock (state) terminal = new(1, "error", "Could not write final feedback.");
+                result = new(1, "error", "Could not write final feedback.");
             }
         }
-        lock (state) return terminal;
+        lock (state) return terminal ??= result;
     }
 
     // Called after the terminal HTTP response completes, so shutdown does not race its acknowledgement.
@@ -169,15 +182,18 @@ public sealed class ReviewSession(GitRepository repository, int graceSeconds = 5
     private static string DisplayPath(string path) => path.Any(char.IsControl)
         ? JsonSerializer.Serialize(path) : path;
 
-    public static async Task WriteAsync(Feedback feedback, CliOptions options)
+    public static async Task WriteAsync(Feedback feedback, CliOptions options, CancellationToken cancellation = default)
     {
+        cancellation.ThrowIfCancellationRequested();
         string output = options.Format == "json" ? JsonSerializer.Serialize(feedback, Json) + "\n" : Markdown(feedback);
-        if (Encoding.UTF8.GetByteCount(output) > MaxRequestBytes * 2)
+        byte[] bytes = Encoding.UTF8.GetBytes(output);
+        if (bytes.Length > MaxRequestBytes * 2)
             throw new IOException("Formatted feedback exceeds the output limit.");
         if (options.Output is null)
         {
-            await Console.Out.WriteAsync(output);
-            await Console.Out.FlushAsync();
+            using var stdout = Console.OpenStandardOutput();
+            await stdout.WriteAsync(bytes, cancellation);
+            await stdout.FlushAsync(cancellation);
             return;
         }
         string directory = Path.GetDirectoryName(options.Output)!;
@@ -189,10 +205,10 @@ public sealed class ReviewSession(GitRepository repository, int graceSeconds = 5
             if (!OperatingSystem.IsWindows()) streamOptions.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
             await using (var stream = new FileStream(temporary, streamOptions))
             {
-                byte[] bytes = Encoding.UTF8.GetBytes(output);
-                await stream.WriteAsync(bytes);
-                await stream.FlushAsync();
+                await stream.WriteAsync(bytes, cancellation);
+                await stream.FlushAsync(cancellation);
             }
+            cancellation.ThrowIfCancellationRequested();
             File.Move(temporary, options.Output, overwrite: true);
         }
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
