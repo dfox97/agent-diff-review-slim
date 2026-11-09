@@ -10,8 +10,10 @@ work-container verification are still pending.
 Implemented: `diff-review-slim open`, working-tree and committed base comparisons,
 root/unborn working-tree handling, safe lazy captures, Git-generated full-context
 patches, a split/narrow diff UI, inline/file/overall comments, reviewed markers,
-filter/tree/wrap/context controls, Markdown/JSON/atomic file output, private HTTP
-session protection, browser-disconnect cancellation and tab-scoped reload recovery.
+filter/tree/wrap/context controls, dependency-free syntax colouring (a local
+tokenizer in `wwwroot/highlight.js`, deliberately not Monaco; see `todo.md` for
+its known approximations), Markdown/JSON/atomic file output, private HTTP session
+protection, browser-disconnect cancellation and tab-scoped reload recovery.
 Windows Edge/Chrome launch is best-effort through shell registration; no bridge
 or environment installation was added.
 
@@ -22,6 +24,19 @@ verified rendering, comment entry, reviewed state, refresh recovery and submissi
 Filesystem symlink creation is denied for this Windows account, so that check
 is explicitly skipped, not claimed as verified. Native app-window interactions,
 Chrome, Linux/WSL and work-container forwarding still need manual acceptance.
+
+Optional local pi testing now has a thin `integrations/pi.ts` command adapter.
+It invokes the published CLI, inserts successful feedback only as an editor draft,
+and preserves no-auto-send semantics. `checks/pi-smoke.py` exercised the actual
+adapter in real pi 1.4.0 RPC mode with submit/cancel/empty/disconnect/error/shutdown
+checks and no agent/model work. This optional check uses existing Python/pi;
+neither is required by the .NET core or its regression harness. Interactive pi
+terminal/Escape acceptance remains pending. This is not Claude hook verification.
+
+Browsers assets are served by an explicit map in `Program.cs`, not by
+`UseStaticFiles`; any new `wwwroot` file must be added there. The regression
+harness asserts every published asset is reachable, because a missing entry fails
+silently as a 404 and once blanked the diff rows.
 
 The current slice starts with working-tree/base comparisons as an implementation
 order, not an agreed decision to omit other scopes from the first release.
@@ -104,7 +119,8 @@ drop them or claim their first-release deferral has been agreed.
 | pi/opencode draft insertion and pi Escape cancellation | Claude is the only required work integration. pi may exercise the new CLI locally; a dedicated pi adapter is optional and test-only. opencode migration is out of scope. No host SDKs in the .NET app |
 | Claude slash command/hook and cancellation blocking | Replace Node hook implementation with the same executable's hook mode; verify installed Claude contract |
 | Open in nvim, line jump, terminal selection and window minimisation | Defer from the work version; offer copyable path:line instead |
-| Monaco syntax colouring, intraline diff, minimap, folding and editor commands | Deliberately simplify; do not recreate an IDE |
+| Monaco syntax colouring | Replaced by a small local tokenizer: strings, comments, numbers, keywords and identifier classes per line extension. Not a parser, no intraline diff |
+| Intraline diff, minimap, folding and editor commands | Deliberately simplify; do not recreate an IDE |
 
 There are no explicit application-wide review shortcuts in the current browser
 code. Escape clears the file filter; pi separately supports Escape to cancel.

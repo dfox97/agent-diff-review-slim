@@ -99,15 +99,70 @@ the destination directory are renamed into place after a complete write.
 See `--help` for all options. This executable is named **`diff-review-slim`**, so
 it does not replace an existing `diff-review` installation.
 
+## Test locally through pi
+
+`integrations/pi.ts` is an optional host-owned adapter, not a dependency of the
+.NET app. It uses the existing pi installation and its TypeScript loader; no npm
+manifest, packages, global pi configuration or SDK dependencies are added.
+
+Publish slim first, then start a **new pi session** in the checkout you want to
+review. For this repository:
+
+```sh
+cd E:/repos/agent-diff-review-slim
+pi --extension ./integrations/pi.ts
+```
+
+In pi, run:
+
+```text
+/diff-review-slim
+/diff-review-slim main
+```
+
+Use one command at a time; the optional argument is a base ref. The distinct
+command name avoids collision with the original `/diff-review`. From another
+checkout, pass the absolute path to this extension; it reviews pi's working
+folder, not the extension's source directory.
+
+- Finish with feedback: insert it into pi's editor as a **draft**, appending to
+  existing editor text. Nothing is automatically sent or added to model context.
+- Cancel, empty feedback, window disconnect or CLI error: leave the editor alone.
+- In the terminal waiting screen, **Escape** cancels the owned reviewer. Browser
+  Cancel also works. `/diff-review-slim-cancel` is available to RPC clients.
+- Session shutdown/reload cancels the reviewer. Cancellation never kills a shared
+  Edge/Chrome process; an abandoned browser window may need closing manually.
+- The private fallback URL appears in pi's UI, not model messages. RPC clients
+  receive it as a UI record and must not log/share it.
+
+The default DLL is `artifacts/publish/diff-review-slim.dll` relative to this repo.
+Set `DIFF_REVIEW_SLIM_DLL` to use another compatible published DLL. Set
+`DIFF_REVIEW_SLIM_NO_OPEN=1` for automated/manual-URL testing without launching a
+browser. Do not use the adapter while pi is running model work; it requires idle.
+
+Optional reproducible integration checks, using existing Python 3 and pi:
+
+```sh
+python checks/pi-smoke.py
+```
+
+This loads the actual extension in real pi RPC mode, uses an isolated offline
+agent directory and disposable checkout, and verifies submit/cancel/empty/close,
+pi-side cancellation, duplicate-review rejection, CLI failure and shutdown
+cleanup. It requires no model turn, observes an empty/non-streaming conversation,
+and keeps private URLs in memory. `--pi` and `--dll` override the executable/DLL.
+The normal .NET regression harness does not require Python or pi.
+
+Verified with pi 1.4.0 on this Windows machine. The interactive terminal waiting
+screen, Escape key and preservation of an existing TUI draft still need hands-on
+acceptance. **pi testing does not establish Claude hook compatibility.**
+
 ## Browser review
 
 - Collapsible file tree with a subsequence/fuzzy path filter; Escape clears it.
 - Split old/new diff, stacked on narrow windows. Click a line number to comment.
 - Inline/file comments with immediate editing and deletion, and an overall note.
 - Reviewed markers, comment counts, wrapping and expandable unchanged context.
-- Dependency-free syntax colouring for C#, JS/TS, JSON, CSS, markup, Python,
-  shell, YAML, SQL and Markdown: a ~450-line local tokenizer, no vendored
-  editor and no packages. Unsupported files render as plain text.
 - Browser Copy feedback action; no cross-OS clipboard helper.
 - Tab-scoped refresh recovery for comments, notes, selection and reviewed markers.
 
@@ -196,6 +251,8 @@ Verified locally on Windows with the installed .NET 10 SDK:
   stdout, plus token/Host/Origin/body-limit rejection.
 - Installed Edge headless smoke: diff rendering, inline comment, overall note,
   reviewed marker, draft restoration after refresh and successful submission.
+- Real pi 1.4.0 RPC integration: draft-only insertion, cancellation/empty/error
+  outcomes, disconnect and shutdown cleanup without agent/model work.
 
 Native Edge app launch/close interaction, Chrome, Linux/WSL and actual work-container
 forwarding are not yet manually verified. This Windows account cannot create
@@ -209,9 +266,9 @@ Next gates:
    in the actual work dev container.
 3. Decide first-release scope priority and add last-commit/history/all-files views.
 
-pi can exercise the published CLI locally. A dedicated pi adapter is optional;
-pi testing does not prove Claude context injection or cancellation blocking.
-opencode migration is out of scope.
+The optional pi adapter above exercises the published CLI locally; it is not a
+required work integration and does not prove Claude context injection or
+cancellation blocking. opencode migration is out of scope.
 
 See [REFACTOR-PLAN.md](REFACTOR-PLAN.md) for the broader target and design decisions.
 
