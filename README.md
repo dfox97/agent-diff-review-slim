@@ -1,5 +1,13 @@
 # Agent Diff Review Slim
 
+![The review window: file tree with a reviewed marker and comment counts, a split
+old/new C# diff with a new-side inline comment, and the overall review note](docs/review-window.png)
+
+*Working-tree review of a sample repository in Edge. The sidebar shows reviewed
+files, status letters and per-file comment counts; clicking a line number opens a
+comment on that old/new line. Feedback is submitted from the toolbar and never
+returns to the browser.*
+
 A lightweight, human-operated Git review tool built with .NET 10 and an existing
 Edge or Chrome browser. Intended for Claude Code sessions in dev containers, with
 Windows and WSL/Docker development environments.
@@ -11,14 +19,6 @@ are still pending. The original application remains independently usable.
 
 The reviewer never invokes an LLM and does not change repository files. Only an
 explicit caller-provided `--out` destination is written on submission.
-
-![The review window: file tree with a reviewed marker and comment counts, a split
-old/new C# diff with a new-side inline comment, and the overall review note](docs/review-window.png)
-
-Working-tree review of a sample repository in Edge. The sidebar shows reviewed
-files, status letters and per-file comment counts; clicking a line number opens a
-comment on that old/new line. Feedback is submitted from the toolbar and never
-returns to the browser.
 
 ## Prerequisites
 
