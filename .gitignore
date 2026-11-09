@@ -1,0 +1,25 @@
+# .NET build and publish output
+**/bin/
+**/obj/
+/artifacts/
+/publish/
+/TestResults/
+*.nupkg
+*.snupkg
+
+# IDE and local user state
+.vs/
+.idea/
+*.user
+*.suo
+*.sln.docstates
+
+# Local secrets and environment overrides
+.env
+.env.*
+!.env.example
+
+# Operating system files
+.DS_Store
+Thumbs.db
+Desktop.ini
