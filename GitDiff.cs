@@ -349,7 +349,9 @@ public sealed class GitRepository
                 }
                 string oldText = TextContent(oldBytes), newText = TextContent(newBytes);
                 IReadOnlyList<DiffRow> rows;
-                if (oldBytes.AsSpan().SequenceEqual(newBytes))
+                // Line endings are display metadata, not whole-file edits. Keep the original
+                // bytes for hashes and CRLF indicators, and retain context for EOL-only changes.
+                if (oldText.Replace("\r\n", "\n") == newText.Replace("\r\n", "\n"))
                 {
                     var lines = oldText.Split('\n');
                     int count = lines.Length - (oldText.EndsWith('\n') ? 1 : 0);
@@ -357,7 +359,7 @@ public sealed class GitRepository
                         .Select(i => new DiffRow("context", i + 1, i + 1, lines[i],
                             i == count - 1 && !oldText.EndsWith('\n'), i == count - 1 && !newText.EndsWith('\n'))).ToArray();
                 }
-                else rows = await MakePatchAsync(oldBytes, newBytes, ct);
+                else rows = await MakePatchAsync(oldText, newText, ct);
                 diff = new(id, rows, null, Hash(oldBytes), Hash(newBytes), oldText.Contains("\r\n"), newText.Contains("\r\n"));
             }
             catch (IOException e) { diff = new(id, [], e.Message, null, null); }
@@ -405,7 +407,7 @@ public sealed class GitRepository
         return GitDiff.Utf8.GetString(bytes);
     }
 
-    private async Task<IReadOnlyList<DiffRow>> MakePatchAsync(byte[] oldBytes, byte[] newBytes, CancellationToken ct)
+    private async Task<IReadOnlyList<DiffRow>> MakePatchAsync(string oldText, string newText, CancellationToken ct)
     {
         string temporary = Directory.CreateTempSubdirectory("diff-review-slim-").FullName;
         try
@@ -413,14 +415,21 @@ public sealed class GitRepository
             if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(temporary,
                 UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
             string oldFile = Path.Combine(temporary, "old"), newFile = Path.Combine(temporary, "new");
-            await File.WriteAllBytesAsync(oldFile, oldBytes, ct);
-            await File.WriteAllBytesAsync(newFile, newBytes, ct);
+            // Normalize only CRLF, not other whitespace or the presence of a final newline.
+            await File.WriteAllTextAsync(oldFile, oldText.Replace("\r\n", "\n"), GitDiff.Utf8, ct);
+            await File.WriteAllTextAsync(newFile, newText.Replace("\r\n", "\n"), GitDiff.Utf8, ct);
             var patch = await GitDiff.RunAsync(temporary,
                 ["-c", "core.autocrlf=false", "-c", "core.attributesFile=" + Path.Combine(temporary, "no-attributes"),
                  "diff", "--no-index", "--no-ext-diff", "--no-textconv", "--no-color", "--text", "--unified=2147483647",
                  "--", oldFile, newFile], ct, isolated: true);
             if (patch.Code is not (0 or 1)) throw new IOException("Git could not produce the captured-file patch.");
-            return GitDiff.ParsePatch(patch.Text);
+            // Keep captured row text as well as hashes tied to the original file contents.
+            var oldLines = oldText.Split('\n');
+            var newLines = newText.Split('\n');
+            return GitDiff.ParsePatch(patch.Text).Select(row => row with
+            {
+                Text = row.OldLine is int oldLine ? oldLines[oldLine - 1] : newLines[row.NewLine!.Value - 1]
+            }).ToArray();
         }
         finally { Directory.Delete(temporary, recursive: true); }
     }
