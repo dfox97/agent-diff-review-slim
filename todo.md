@@ -1,14 +1,19 @@
 # TODO
 
-The first CLI/UI slice is merged to `main` (PR #1). Browser review, working-tree
-and committed base comparisons, and the optional pi adapter are in place. It is
-usable locally, but is not yet a drop-in replacement for the work Claude hook.
+The CLI/UI slice and safety cleanup are merged to `main` (PRs #1 and #2).
+Working-tree and committed base comparisons, plain-text browser review, and the
+optional pi adapter are in place. It is usable locally, but is not yet a
+drop-in replacement for the work Claude hook.
 
 Nothing here is agreed priority beyond section 1; read `REFACTOR-PLAN.md` before
-changing scope. One invariant is easy to break:
+changing scope. Two invariants are easy to break:
 
-- **Diff rows are plain text.** Source is rendered with `textContent`, never
-  `innerHTML`, so there is no escaping path to get wrong. Keep it that way.
+- **Every browser asset must be allowlisted in `Program.cs`.** The current assets
+  are `index.html`, `app.js` and `style.css`, served by an explicit map rather
+  than `UseStaticFiles`. The existing harness checks published asset reachability.
+- **Source rows use `textContent`.** Keep repository content as text rather than
+  injecting it into `innerHTML`. The custom syntax highlighter was removed in
+  PR #2 to simplify rendering and maintenance.
 
 ## Local pi test before Claude
 
@@ -63,7 +68,11 @@ changing scope. One invariant is easy to break:
 - [ ] Run ancestor/final-component symlink rejection checks on a machine with
   link-creation permission; the current Windows account skips this scenario.
 
-## Current verification baseline
+## Previously recorded verification
+
+These results were recorded before the safety/rendering cleanup in PR #2. They
+are historical evidence, not verification of the current revision. Rerun the
+relevant checks when validating a release.
 
 - User confirmed that local launch via the documented `dotnet` command works
   and the UI looks good. This does not yet establish manual close/completion
@@ -80,9 +89,10 @@ changing scope. One invariant is easy to break:
 - Real pi 1.4.0 RPC smoke passed with the optional adapter: draft insertion,
   cancellation/empty/error outcomes and cleanup, with no conversation messages
   or agent/model turn. Interactive terminal acceptance is still pending.
-- pi testing does not establish Claude hook compatibility. Claude is not on this
-  machine's PATH; verify its actual installed work version before configuring
-  hooks. The pi adapter remains optional; opencode is out of scope.
+- pi testing does not establish Claude hook compatibility. Claude was unavailable
+  on the recorded Windows machine's PATH; verify the actual installed work
+  version before configuring hooks. The pi adapter remains optional; opencode
+  is out of scope.
 - The original `agent-diff-review` repository is untouched and still usable; this
   repository is a separate implementation with its own history.
 
@@ -120,5 +130,5 @@ Where the work actually stands:
 - The `--out`/JSON contract, exit codes and the "no LLM, read-only, one terminal
   action" guarantees are load-bearing for callers; treat changes to them as
   breaking.
-- Screenshot regeneration is manual today; if the diff rows or toolbar change,
-  re-capture `docs/review-window.png` or the README lies.
+- Screenshot regeneration is manual. Verify that `docs/review-window.png` matches
+  the current plain-text UI and refresh it if needed.
