@@ -129,6 +129,53 @@ await Check("Indexing respects repository CRLF normalization while patches prese
     Assert(diff.Rows.Any(r => r.NewLine == 2 && r.Text == "changed\r"));
 });
 
+await Check("Small whitespace edits stay localized across LF/CRLF conversions", async () =>
+{
+    foreach (var (oldEol, newEol) in new[] { ("\n", "\n"), ("\n", "\r\n"), ("\r\n", "\n") })
+    {
+        using var fixture = await Fixture.Create();
+        var lines = Enumerable.Range(1, 100).Select(i => $"line {i}").ToArray();
+        await fixture.Write("file.txt", string.Join(oldEol, lines) + oldEol); await fixture.Commit();
+        lines[49] += " ";
+        await fixture.Write("file.txt", string.Join(newEol, lines) + newEol);
+        var repo = await GitRepository.OpenAsync(fixture.Path, null);
+        var diff = await repo.LoadAsync(repo.Files.Single().Id);
+        Assert(diff.Omission is null, diff.Omission ?? "");
+        Assert(diff.Rows.Count(r => r.Kind == "context") == 99, "Line-ending conversion marked unchanged lines as edits");
+        Assert(diff.Rows.Count(r => r.Kind == "deleted") == 1 && diff.Rows.Count(r => r.Kind == "added") == 1);
+        Assert(diff.Rows.Single(r => r.Kind == "deleted").OldLine == 50);
+        var added = diff.Rows.Single(r => r.Kind == "added");
+        Assert(added.NewLine == 50 && added.Text.TrimEnd('\r') == "line 50 ", "A real space edit must remain visible");
+        Assert(diff.OldCrlf == (oldEol == "\r\n") && diff.NewCrlf == (newEol == "\r\n"));
+        Assert(diff.OldHash != diff.NewHash);
+    }
+});
+
+await Check("Line-ending-only changes retain context and original byte hashes", async () =>
+{
+    using var fixture = await Fixture.Create();
+    await fixture.Write("file.txt", "one\ntwo\nlast"); await fixture.Commit();
+    await fixture.Write("file.txt", "one\r\ntwo\r\nlast");
+    var repo = await GitRepository.OpenAsync(fixture.Path, null);
+    var diff = await repo.LoadAsync(repo.Files.Single().Id);
+    Assert(diff.Omission is null && diff.Rows.Count == 3 && diff.Rows.All(r => r.Kind == "context"));
+    Assert(diff.Rows[^1].OldNoNewline && diff.Rows[^1].NewNoNewline);
+    Assert(diff.OldHash != diff.NewHash && !diff.OldCrlf && diff.NewCrlf);
+});
+
+await Check("Final-newline changes remain visible across LF/CRLF conversions", async () =>
+{
+    using var fixture = await Fixture.Create();
+    await fixture.Write("file.txt", "one\nlast"); await fixture.Commit();
+    await fixture.Write("file.txt", "one\r\nlast\r\n");
+    var repo = await GitRepository.OpenAsync(fixture.Path, null);
+    var diff = await repo.LoadAsync(repo.Files.Single().Id);
+    Assert(diff.Omission is null && diff.Rows.Count == 3);
+    Assert(diff.Rows[0].Kind == "context");
+    Assert(diff.Rows.Single(r => r.Kind == "deleted").OldNoNewline);
+    Assert(!diff.Rows.Single(r => r.Kind == "added").NewNoNewline);
+});
+
 await Check("Rename/delete identity and unchanged full-file rows", async () =>
 {
     using var fixture = await Fixture.Create();
