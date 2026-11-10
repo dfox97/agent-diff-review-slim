@@ -60,6 +60,35 @@
       }
     })();
   }
+  // Measures the widest line of a side with the real diff font, including tabs.
+  const probe = node('pre', 'measure');
+  function measure(lines) {
+    if (!lines.length) return 0;
+    if (!probe.isConnected) document.body.append(probe);
+    probe.textContent = lines.join('\n');
+    return probe.getBoundingClientRect().width;
+  }
+  // Like VS Code's diff view: one horizontal scrollbar for the whole diff instead of
+  // one per long line. Panes keep their width and scroll their text together,
+  // including when stacked in a narrow window.
+  function fitColumns() {
+    const viewport = $('viewport');
+    if (!current || $('wrap').checked) {
+      viewport.style.removeProperty('--diff-range'); viewport.style.removeProperty('--scroll-x'); return;
+    }
+    const oldLines = [], newLines = [];
+    for (const row of current.rows) {
+      if (row.kind !== 'added') oldLines.push(row.text.replace(/\r$/, ''));
+      if (row.kind !== 'deleted') newLines.push(row.text.replace(/\r$/, ''));
+    }
+    // 3.5rem line-number gutter plus the 1px pane border and rounding slack.
+    const gutter = Math.ceil(parseFloat(getComputedStyle(document.documentElement).fontSize) * 3.5) + 2;
+    const widest = Math.ceil(Math.max(measure(oldLines), measure(newLines))) + gutter;
+    const paneWidth = Math.floor(viewport.clientWidth / (window.matchMedia('(max-width: 650px)').matches ? 1 : 2));
+    viewport.style.setProperty('--diff-range', Math.max(0, widest - paneWidth) + 'px');
+    // A shrinking range clamps scrollLeft without a scroll event; keep the text in step.
+    viewport.style.setProperty('--scroll-x', viewport.scrollLeft + 'px');
+  }
   function fuzzy(path, query) {
     path = path.toLowerCase(); query = query.toLowerCase();
     let at = 0;
@@ -176,6 +205,7 @@
       }
     }
     $('diff').replaceChildren(fragment);
+    fitColumns();
     $('viewport').scrollTop = position;
     controls();
   }
@@ -187,6 +217,7 @@
     $('filename').textContent = file.oldPath && file.newPath && file.oldPath !== file.newPath
       ? `${file.oldPath} → ${file.newPath}` : file.newPath || file.oldPath;
     $('reviewed').checked = reviewed.has(id);
+    $('viewport').scrollLeft = 0; $('viewport').style.removeProperty('--scroll-x'); $('viewport').style.removeProperty('--diff-range');
     $('file-comments').replaceChildren(); $('diff').replaceChildren(node('div', 'notice', 'Loading captured diff…'));
     renderFiles(); save(); controls();
     try {
@@ -241,7 +272,16 @@
   $('files').addEventListener('click', event => { const button = event.target.closest('[data-file]'); if (button) void selectFile(button.dataset.file); });
   $('overall').addEventListener('input', save);
   $('reviewed').addEventListener('change', () => { if ($('reviewed').checked) reviewed.add(selected); else reviewed.delete(selected); save(); renderFiles(); });
-  $('wrap').addEventListener('change', () => { $('viewport').classList.toggle('wrap', $('wrap').checked); save(); });
+  $('wrap').addEventListener('change', () => {
+    $('viewport').classList.toggle('wrap', $('wrap').checked);
+    $('viewport').scrollLeft = 0; save(); fitColumns();
+  });
+  let resizeQueued = false;
+  window.addEventListener('resize', () => {
+    if (resizeQueued) return;
+    resizeQueued = true;
+    requestAnimationFrame(() => { resizeQueued = false; fitColumns(); });
+  });
   $('full').addEventListener('change', () => { save(); renderDiff(); });
   $('file-note').addEventListener('click', () => addComment('file'));
   $('viewport').addEventListener('click', event => {
@@ -251,6 +291,9 @@
     if (target.dataset.expand !== undefined) { expanded.add(Number(target.dataset.expand)); renderDiff(); }
     if (target.dataset.retry) void selectFile(selected);
   });
+  $('viewport').addEventListener('scroll', () => {
+    $('viewport').style.setProperty('--scroll-x', $('viewport').scrollLeft + 'px');
+  }, { passive: true });
   $('viewport').addEventListener('input', event => {
     const id = event.target.dataset.comment; if (!id) return;
     const comment = comments.find(c => c.id === id); if (comment) { comment.body = event.target.value; save(); updateCounts(); }

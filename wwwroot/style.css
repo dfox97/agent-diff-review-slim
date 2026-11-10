@@ -36,18 +36,26 @@ summary { cursor: pointer; color: #afbed0; overflow-wrap: anywhere; }
 h1 { font-size: .95rem; margin: 0; overflow-wrap: anywhere; }
 #identity { padding: .35rem 1rem; font-size: .8rem; }
 #viewport { overflow: auto; flex: 1; min-height: 0; }
-.diff-heading { display: grid; grid-template-columns: 1fr 1fr; position: sticky; top: 0; z-index: 1; background: #202a38; color: #b9cbe3; font-size: .8rem; border-block: 1px solid #3a475c; }
+.diff-heading { display: grid; grid-template-columns: 1fr 1fr; position: sticky; top: 0; z-index: 2; background: #202a38; color: #b9cbe3; font-size: .8rem; border-block: 1px solid #3a475c; }
 .diff-heading span { padding: .25rem .6rem; }
-.diff-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-.side { display: grid; grid-template-columns: 3.5rem minmax(0, 1fr); align-content: start; border-right: 1px solid #303949; min-width: 0; }
-.side.empty { background: #151920; }
-.side.deleted { background: #342027; }
-.side.added { background: #183025; }
-.line-number { border: 0; border-radius: 0; padding: 0 .4rem; font: 12px/1.65 ui-monospace, Consolas, monospace; background: transparent; text-align: right; color: #99a8bc; }
-pre { margin: 0; padding: 0 .5rem; overflow-x: auto; font: 12px/1.65 ui-monospace, Consolas, monospace; white-space: pre; min-height: 1.65em; }
-.wrap pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+/* One horizontal scrollbar for the whole diff, as in VS Code's diff view: the
+   grid stays pinned at window width while long lines scroll inside their pane. */
+#hwrap { width: calc(100% + var(--diff-range, 0px)); }
+#pinned { position: sticky; left: 0; width: calc(100% - var(--diff-range, 0px)); }
+.diff-row { display: grid; grid-template-columns: 1fr 1fr; }
+.side { display: grid; grid-template-columns: 3.5rem minmax(0, 1fr); align-content: start; border-right: 1px solid #303949; min-width: 0; overflow: hidden; --side-bg: #101318; background: var(--side-bg); }
+.side.empty { --side-bg: #151920; }
+.side.deleted { --side-bg: #342027; }
+.side.added { --side-bg: #183025; }
+/* Opaque gutter: long lines scroll underneath the line numbers, as in VS Code. */
+.line-number { border: 0; border-radius: 0; padding: 0 .4rem; font: 12px/1.65 ui-monospace, Consolas, monospace; background: inherit; position: relative; z-index: 1; text-align: right; color: #99a8bc; }
+pre { margin: 0; padding: 0 .5rem; width: max-content; font: 12px/1.65 ui-monospace, Consolas, monospace; white-space: pre; min-height: 1.65em; }
+.side pre { transform: translateX(calc(-1 * var(--scroll-x, 0px))); }
+.wrap pre { white-space: pre-wrap; overflow-wrap: anywhere; width: auto; }
+/* Off-screen probe used to size the diff; fixed so it never grows the page. */
+.measure { position: fixed; top: 0; left: -10000px; width: max-content; visibility: hidden; }
 .newline-note { color: #d4bc82; font-size: .7rem; grid-column: 2; padding: 0 .5rem; }
-.comment { grid-column: 1 / -1; margin: .5rem; border: 1px solid #49648b; border-radius: 5px; padding: .6rem; background: #192435; }
+.comment { grid-column: 1 / -1; margin: .5rem; border: 1px solid #49648b; border-radius: 5px; padding: .6rem; background: #192435; max-width: 60rem; }
 .comment label { color: #b8d6ff; font-size: .8rem; margin-bottom: .3rem; }
 .comment button { margin-top: .3rem; font-size: .8rem; }
 #file-comments:empty { display: none; }
