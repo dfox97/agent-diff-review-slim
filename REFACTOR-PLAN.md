@@ -32,12 +32,12 @@ checks and no agent/model work. This optional check uses existing Python/pi;
 neither is required by the .NET core or its regression harness. Interactive pi
 terminal/Escape acceptance remains pending. This is not Claude hook verification.
 
-Browsers assets are served by a startup scan of the published `wwwroot`, not by
-`UseStaticFiles`, so a new browser file cannot silently 404 and no allowlist has
-to be maintained. Unknown asset extensions fail startup rather than being served.
-Static-asset compression is disabled because those `.br`/`.gz` siblings would
-never be served by `Results.File`. The regression harness checks the served root
-and that the Copy preview matches final stdout byte for byte.
+Browser assets are served by an explicit three-file map in `Program.cs`.
+Missing required assets fail startup; unrelated files and generated `.br`/`.gz`
+siblings are ignored and not exposed. New UI assets must be added to the map.
+The regression harness requests every required asset and checks additional
+published source assets for missing mappings. It also checks that the Copy
+preview matches final stdout byte for byte.
 
 The current slice starts with working-tree/base comparisons as an implementation
 order, not an agreed decision to omit other scopes from the first release.

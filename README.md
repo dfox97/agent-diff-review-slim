@@ -44,8 +44,8 @@ dotnet publish AgentDiffReview.csproj -c Release -o artifacts/publish
 ```
 
 Publish into a fresh output directory for deployment; publishing over an older
-release does not remove obsolete files, and a leftover asset with an unknown
-extension now fails startup instead of being ignored.
+release does not remove obsolete files. The server only exposes its three UI
+assets; unrelated files and generated compression siblings are ignored.
 
 The checks are a small .NET console harness — a file-based app that references the
 main project, so there is no second project file — without a test framework or new

@@ -69,9 +69,10 @@ changing scope. One invariant is easy to break:
   and the UI looks good. This does not yet establish manual close/completion
   behaviour or Claude/dev-container compatibility.
 - 15 regression checks passed, 0 failed, 1 symlink scenario skipped. The HTTP
-  check asserts the served `wwwroot` root and that the Copy preview endpoint
-  returns exactly the Markdown that final submission writes to stdout.
-- Release build/publish and JavaScript syntax checks passed. A published-off
+  check requests every required UI asset, detects missing mappings for additional
+  published source assets, and verifies that the Copy preview endpoint returns
+  exactly the Markdown that final submission writes to stdout.
+- Release build/publish and JavaScript syntax checks passed. A published-binary
   smoke confirmed `/`, `/app.js`, `/style.css`, `/api/preview`, token/origin
   rejection and a clean-stdout submission.
 - Installed Edge headless smoke passed: rendering, inline comments, overall note,

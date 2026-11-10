@@ -250,10 +250,21 @@ await Check("HTTP security, lazy load, held connection and successful clean stdo
     Assert((await host.Get("/api/session", origin: "http://evil.example")).StatusCode == HttpStatusCode.Forbidden);
     Assert((await host.Get("/api/session", host: "evil.example")).StatusCode == HttpStatusCode.Forbidden);
     Assert((await host.Get("/README.md")).StatusCode == HttpStatusCode.NotFound);
-    // Assets are served from a directory scan, so presence in the published wwwroot is enough.
-    Assert(Directory.GetFiles(Path.Combine(AppContext.BaseDirectory, "wwwroot")).Length > 2,
-        "Published browser assets are missing from the harness output.");
-    Assert((await host.Get("/")).IsSuccessStatusCode);
+    // Check required assets explicitly: a directory count can hide a missing script or stylesheet.
+    foreach (string path in new[] { "/", "/app.js", "/style.css" })
+    {
+        using var response = await host.Get(path);
+        Assert(response.IsSuccessStatusCode, "Unserved required browser asset: " + path);
+    }
+    // Additional source assets must be allowlisted too; generated compression siblings are ignored.
+    foreach (string asset in Directory.GetFiles(Path.Combine(AppContext.BaseDirectory, "wwwroot")))
+    {
+        string name = Path.GetFileName(asset);
+        if (name.EndsWith(".gz") || name.EndsWith(".br")) continue;
+        using var response = await host.Get(name == "index.html" ? "/" : "/" + name);
+        Assert(response.IsSuccessStatusCode, "Unserved browser asset: " + name);
+    }
+    Assert((await host.Get("/app.js.gz")).StatusCode == HttpStatusCode.NotFound);
     Assert((await host.Get("/api/files/unknown")).StatusCode == HttpStatusCode.BadRequest);
     using (var nonJson = await host.Post("/api/cancel", "{}", "text/plain")) Assert(nonJson.StatusCode == HttpStatusCode.UnsupportedMediaType);
     using (var oversized = await host.Post("/api/submit", new string('x', 256001))) Assert(oversized.StatusCode == HttpStatusCode.RequestEntityTooLarge);
