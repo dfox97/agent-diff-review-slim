@@ -6,6 +6,7 @@
     <AssemblyName>diff-review-slim</AssemblyName>
     <RootNamespace>AgentDiffReview</RootNamespace>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <DefaultItemExcludes>$(DefaultItemExcludes);artifacts/**</DefaultItemExcludes>
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="checks/**/*.cs" />

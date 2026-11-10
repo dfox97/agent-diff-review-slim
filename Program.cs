@@ -94,7 +94,8 @@ public static class Program
                     }
                 }
                 try { await next(context); }
-                catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested || operation.IsCancellationRequested) { }
+                catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested || operation.IsCancellationRequested)
+                { context.Abort(); }
                 catch (Exception error) when (error is ArgumentException or JsonException or BadHttpRequestException or IOException or InvalidOperationException)
                 {
                     if (context.Response.HasStarted) { context.Abort(); return; }
@@ -108,7 +109,7 @@ public static class Program
                     await context.Response.WriteAsJsonAsync(new { error = error is JsonException ? "Malformed JSON request." : error.Message });
                 }
             });
-            foreach (var asset in new[] { ("/", "index.html", "text/html"), ("/app.js", "app.js", "text/javascript"), ("/highlight.js", "highlight.js", "text/javascript"), ("/style.css", "style.css", "text/css") })
+            foreach (var asset in new[] { ("/", "index.html", "text/html"), ("/app.js", "app.js", "text/javascript"), ("/style.css", "style.css", "text/css") })
             {
                 string path = Path.Combine(AppContext.BaseDirectory, "wwwroot", asset.Item2);
                 if (!File.Exists(path)) throw new IOException("Missing published browser assets; build/publish the application first.");
@@ -138,26 +139,29 @@ public static class Program
             });
             app.MapPost("/api/submit", async (HttpContext context) =>
             {
-                var submission = await context.Request.ReadFromJsonAsync<Submission>(ReviewSession.Json, context.RequestAborted)
+                using var linked = CancellationTokenSource.CreateLinkedTokenSource(operation.Token, context.RequestAborted);
+                var submission = await context.Request.ReadFromJsonAsync<Submission>(ReviewSession.Json, linked.Token)
                     ?? throw new ArgumentException("A submission body is required.");
-                var result = await session.SubmitAsync(submission, feedback => ReviewSession.WriteAsync(feedback, options));
+                var result = await session.SubmitAsync(submission,
+                    feedback => ReviewSession.WriteAsync(feedback, options, operation.Token), operation.Token);
                 try
                 {
                     context.Response.StatusCode = result.Status == "error" ? 500 : 200;
-                    await context.Response.WriteAsJsonAsync(result, ReviewSession.Json);
-                    await context.Response.CompleteAsync();
+                    await context.Response.WriteAsJsonAsync(result, ReviewSession.Json, linked.Token);
+                    await context.Response.CompleteAsync().WaitAsync(linked.Token);
                 }
                 finally { session.AcknowledgeTerminal(); }
             });
             app.MapPost("/api/cancel", async (HttpContext context) =>
             {
-                using var body = await JsonDocument.ParseAsync(context.Request.Body, cancellationToken: context.RequestAborted);
+                using var linked = CancellationTokenSource.CreateLinkedTokenSource(operation.Token, context.RequestAborted);
+                using var body = await JsonDocument.ParseAsync(context.Request.Body, cancellationToken: linked.Token);
                 if (body.RootElement.ValueKind != JsonValueKind.Object) throw new ArgumentException("Expected a JSON object.");
                 if (!session.Cancel(acknowledge: false)) { context.Response.StatusCode = 409; return; }
                 try
                 {
-                    await context.Response.WriteAsJsonAsync(new { status = "cancelled", message = "Review cancelled." });
-                    await context.Response.CompleteAsync();
+                    await context.Response.WriteAsJsonAsync(new { status = "cancelled", message = "Review cancelled." }, linked.Token);
+                    await context.Response.CompleteAsync().WaitAsync(linked.Token);
                 }
                 finally { session.AcknowledgeTerminal(); }
             });

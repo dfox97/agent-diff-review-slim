@@ -27,19 +27,32 @@ public static class GitDiff
     public const long MaxRetainedBytes = 32_000_000;
 
     public static async Task<GitResult> RunAsync(string directory, IEnumerable<string> arguments,
-        CancellationToken cancellation = default, int maxBytes = 8_000_000)
+        CancellationToken cancellation = default, int maxBytes = 8_000_000, byte[]? input = null, bool isolated = false)
     {
         var start = new ProcessStartInfo("git")
         {
             WorkingDirectory = directory, UseShellExecute = false,
-            RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true
+            RedirectStandardOutput = true, RedirectStandardError = true, RedirectStandardInput = true, CreateNoWindow = true
         };
-        foreach (var arg in new[] { "--no-pager", "--literal-pathspecs", "-c", "color.ui=false",
+        // A command-line flag fails closed on older Git versions; an unknown environment flag would not.
+        foreach (var arg in new[] { "--no-pager", "--no-lazy-fetch", "--literal-pathspecs", "-c", "color.ui=false",
                      "-c", "core.fsmonitor=false", "-c", "diff.suppressBlankEmpty=false" }.Concat(arguments))
             start.ArgumentList.Add(arg);
         start.Environment["GIT_OPTIONAL_LOCKS"] = "0";
         start.Environment["GIT_TERMINAL_PROMPT"] = "0";
         start.Environment["LC_ALL"] = "C";
+        if (isolated)
+        {
+            // Temporary byte comparisons must not inherit repository/global conversions or helpers.
+            foreach (string name in new[] { "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE", "GIT_ATTR_SOURCE",
+                "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_CONFIG", "GIT_CONFIG_PARAMETERS" })
+                start.Environment.Remove(name);
+            start.Environment["GIT_DIR"] = Path.Combine(directory, "no-repository");
+            start.Environment["GIT_CONFIG_NOSYSTEM"] = "1";
+            start.Environment["GIT_CONFIG_GLOBAL"] = Path.Combine(directory, "no-config");
+            start.Environment["GIT_CONFIG_COUNT"] = "0";
+            start.Environment["GIT_ATTR_NOSYSTEM"] = "1";
+        }
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
         deadline.CancelAfter(TimeSpan.FromSeconds(15));
         using var process = Process.Start(start) ?? throw new IOException("Could not start Git.");
@@ -65,9 +78,18 @@ public static class GitDiff
             }
             catch { deadline.Cancel(); throw; }
         }
+        async Task WriteInput()
+        {
+            try
+            {
+                if (input is not null) await process.StandardInput.BaseStream.WriteAsync(input, deadline.Token);
+                process.StandardInput.Close();
+            }
+            catch { deadline.Cancel(); throw; }
+        }
         var stdout = ReadBounded(process.StandardOutput.BaseStream, maxBytes);
         var stderr = ReadBounded(process.StandardError.BaseStream, 64_000);
-        await Task.WhenAll(stdout, stderr, process.WaitForExitAsync(deadline.Token));
+        await Task.WhenAll(stdout, stderr, WriteInput(), process.WaitForExitAsync(deadline.Token));
         return new(process.ExitCode, await stdout, Encoding.UTF8.GetString(await stderr));
     }
 
@@ -183,8 +205,30 @@ public sealed class GitRepository
     {
         var repository = new GitRepository();
         var root = await GitDiff.RunAsync(directory, ["rev-parse", "--show-toplevel"], ct);
-        if (root.Code != 0) throw new IOException("The launch directory is not a Git working tree.");
+        if (root.Code != 0) throw new IOException("Cannot open the Git working tree. Verify the path and that Git supports --no-lazy-fetch.");
         repository.Root = root.Text.TrimEnd('\r', '\n');
+        if (requestedBase is null)
+        {
+            // Git's working-tree comparison can run clean/process filters even with --no-textconv.
+            // Refuse them rather than silently changing the checkout's conversion rules.
+            var filters = await GitDiff.RunAsync(repository.Root,
+                ["config", "--null", "--name-only", "--get-regexp", @"^filter\..*\.(clean|process)$"], ct);
+            if (filters.Code is not (0 or 1)) throw new IOException("Cannot verify Git filter configuration.");
+            if (filters.Code == 0)
+            {
+                var drivers = filters.Text.Split('\0', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(key => key["filter.".Length..key.LastIndexOf('.')]).ToHashSet(StringComparer.Ordinal);
+                var tracked = await GitDiff.RunAsync(repository.Root, ["ls-files", "-z"], ct);
+                if (tracked.Code != 0) throw new IOException("Cannot inspect tracked paths for Git filters.");
+                var attributes = await GitDiff.RunAsync(repository.Root,
+                    ["check-attr", "-z", "--stdin", "filter"], ct, input: tracked.Output);
+                if (attributes.Code != 0) throw new IOException("Cannot verify Git filter attributes.");
+                var fields = attributes.Text.Split('\0'); // path, attribute, value triples
+                for (int i = 2; i < fields.Length; i += 3)
+                    if (drivers.Contains(fields[i]))
+                        throw new IOException("Working-tree review refuses Git clean/process filters assigned to tracked files. Use a committed --base comparison or an approved checkout without those helpers.");
+            }
+        }
         var head = await GitDiff.RunAsync(repository.Root, ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"], ct);
         repository.Head = head.Code == 0 ? head.Text.Trim() : null;
         repository.Base = requestedBase;
@@ -208,13 +252,13 @@ public sealed class GitRepository
         {
             string[] revisions = repository.MergeBase is null ? [repository.Head] : [repository.MergeBase, repository.Head];
             var names = await GitDiff.RunAsync(repository.Root,
-                new[] { "diff", "--no-ext-diff", "--no-textconv", "--name-status", "-z", "--find-renames" }
+                new[] { "diff", "--no-ext-diff", "--no-textconv", "--ignore-submodules=dirty", "--name-status", "-z", "--find-renames" }
                     .Concat(revisions).Append("--"), ct);
             if (names.Code != 0) throw new IOException("Git could not index the comparison.");
             foreach (var change in GitDiff.ParseNames(names.Text))
             {
                 string key = change.NewPath ?? change.OldPath!;
-                if (!changes.TryGetValue(key, out var prior) || prior.Status != "unmerged") changes[key] = change;
+                changes[key] = change;
             }
         }
         if (repository.MergeBase is null)
@@ -226,13 +270,29 @@ public sealed class GitRepository
             if (paths.Code != 0) throw new IOException("Git could not index untracked files.");
             foreach (string path in paths.Text.Split('\0', StringSplitOptions.RemoveEmptyEntries))
                 changes.TryAdd(path, ("added", null, path));
+
+            // A staged deletion can have a replacement in the working tree, even if it is ignored.
+            // Index it as a modification so the replacement is captured and checked like any other file.
+            foreach (var (path, change) in changes.ToArray())
+                if (change.Status == "deleted" && Path.Exists(Path.Combine(repository.Root, path)))
+                    changes[path] = ("modified", change.OldPath, path);
+
+            var conflicts = await GitDiff.RunAsync(repository.Root, ["ls-files", "--unmerged", "-z"], ct);
+            if (conflicts.Code != 0) throw new IOException("Git could not inspect unresolved conflicts.");
+            foreach (string record in conflicts.Text.Split('\0', StringSplitOptions.RemoveEmptyEntries))
+            {
+                int separator = record.IndexOf('\t');
+                if (separator < 0) throw new IOException("Malformed Git conflict entry.");
+                string path = record[(separator + 1)..];
+                changes[path] = ("unmerged", path, path);
+            }
         }
         if (changes.Count > 10_000) throw new IOException("Too many files for one review (limit: 10,000).");
         foreach (var change in changes.Values.OrderBy(c => c.NewPath ?? c.OldPath, StringComparer.Ordinal))
         {
-            string? omission = change.Status == "unmerged" ? "Unmerged files are not supported in this first slice." : null;
+            string? omission = change.Status == "unmerged" ? "Unresolved merge conflict. Resolve it and restart the review." : null;
             Stamp? stamp = null;
-            if (repository.MergeBase is null && change.NewPath is not null)
+            if (omission is null && repository.MergeBase is null && change.NewPath is not null)
             {
                 try { stamp = ReadStamp(GitDiff.SafeWorkingPath(repository.Root, change.NewPath)); }
                 catch (IOException e) { omission = e.Message; }
@@ -334,7 +394,7 @@ public sealed class GitRepository
             throw new IOException("Committed symlinks/submodules/unsupported entries are omitted.");
         var size = await GitDiff.RunAsync(Root, ["cat-file", "-s", fields[2]], ct, 1024);
         if (size.Code != 0 || !long.TryParse(size.Text.Trim(), out long bytes) || bytes > GitDiff.MaxFileBytes)
-            throw new IOException("Committed file is unavailable or exceeds 1,000,000 bytes.");
+            throw new IOException("Committed file is missing locally or exceeds 1,000,000 bytes. Automatic fetching is disabled.");
         var content = await GitDiff.RunAsync(Root, ["cat-file", "blob", fields[2]], ct, GitDiff.MaxFileBytes);
         if (content.Code != 0) throw new IOException("Cannot read committed content.");
         return content.Output;
@@ -357,8 +417,10 @@ public sealed class GitRepository
             string oldFile = Path.Combine(temporary, "old"), newFile = Path.Combine(temporary, "new");
             await File.WriteAllBytesAsync(oldFile, oldBytes, ct);
             await File.WriteAllBytesAsync(newFile, newBytes, ct);
-            var patch = await GitDiff.RunAsync(Root, ["-c", "core.autocrlf=false", "diff", "--no-index", "--no-ext-diff", "--no-textconv",
-                "--no-color", "--text", "--unified=2147483647", "--", oldFile, newFile], ct);
+            var patch = await GitDiff.RunAsync(temporary,
+                ["-c", "core.autocrlf=false", "-c", "core.attributesFile=" + Path.Combine(temporary, "no-attributes"),
+                 "diff", "--no-index", "--no-ext-diff", "--no-textconv", "--no-color", "--text", "--unified=2147483647",
+                 "--", oldFile, newFile], ct, isolated: true);
             if (patch.Code is not (0 or 1)) throw new IOException("Git could not produce the captured-file patch.");
             return GitDiff.ParsePatch(patch.Text);
         }
