@@ -1,3 +1,10 @@
+#:project ../AgentDiffReview.csproj
+#:property Nullable=enable
+#:property ImplicitUsings=enable
+#:property PublishAot=false
+#:property TreatWarningsAsErrors=true
+// PublishAot=false keeps restore inside NuGet.Config's cleared package sources:
+// AOT/self-contained runtime packs are feed-only, and the checks need no packages.
 using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Json;
@@ -243,16 +250,10 @@ await Check("HTTP security, lazy load, held connection and successful clean stdo
     Assert((await host.Get("/api/session", origin: "http://evil.example")).StatusCode == HttpStatusCode.Forbidden);
     Assert((await host.Get("/api/session", host: "evil.example")).StatusCode == HttpStatusCode.Forbidden);
     Assert((await host.Get("/README.md")).StatusCode == HttpStatusCode.NotFound);
-    // Every published browser asset must be reachable; adding a script to wwwroot
-    // without adding it to the server's allowlist silently breaks the UI.
-    var assets = Directory.GetFiles(Path.Combine(AppContext.BaseDirectory, "wwwroot"));
-    Assert(assets.Length > 2, "Published browser assets are missing from the harness output.");
-    foreach (var asset in assets)
-    {
-        string name = Path.GetFileName(asset);
-        using var response = await host.Get(name == "index.html" ? "/" : "/" + name);
-        Assert(response.IsSuccessStatusCode, "Unserved browser asset: " + name);
-    }
+    // Assets are served from a directory scan, so presence in the published wwwroot is enough.
+    Assert(Directory.GetFiles(Path.Combine(AppContext.BaseDirectory, "wwwroot")).Length > 2,
+        "Published browser assets are missing from the harness output.");
+    Assert((await host.Get("/")).IsSuccessStatusCode);
     Assert((await host.Get("/api/files/unknown")).StatusCode == HttpStatusCode.BadRequest);
     using (var nonJson = await host.Post("/api/cancel", "{}", "text/plain")) Assert(nonJson.StatusCode == HttpStatusCode.UnsupportedMediaType);
     using (var oversized = await host.Post("/api/submit", new string('x', 256001))) Assert(oversized.StatusCode == HttpStatusCode.RequestEntityTooLarge);
@@ -263,11 +264,19 @@ await Check("HTTP security, lazy load, held connection and successful clean stdo
     Assert(diff.IsSuccessStatusCode && diff.Headers.CacheControl!.NoStore);
     using var lifetime = await host.Lifetime();
     var payload = new Submission("HTTP feedback", [new("c1", id, "new", 1, 1, "Line feedback")]);
+    string previewText;
+    using (var preview = await host.Post("/api/preview", JsonSerializer.Serialize(payload, ReviewSession.Json)))
+    {
+        Assert(preview.IsSuccessStatusCode, await preview.Content.ReadAsStringAsync());
+        previewText = await preview.Content.ReadAsStringAsync();
+    }
     using var submitted = await host.Post("/api/submit", JsonSerializer.Serialize(payload, ReviewSession.Json));
     Assert(submitted.IsSuccessStatusCode, await submitted.Content.ReadAsStringAsync());
     var result = await host.Wait();
     Assert(result.Code == 0 && result.Output.Contains("HTTP feedback") && result.Output.Contains("file.txt:1 (new)"));
     Assert(!result.Output.Contains("Review URL") && !result.Error.Contains("Line feedback"));
+    // The browser Copy action reuses the server formatter, so preview and stdout agree.
+    Assert(previewText == result.Output, "Copy preview diverged from final stdout:" + Environment.NewLine + previewText);
 });
 
 await Check("HTTP reload reconnects; closing the actual lifetime stream cancels the process", async () =>

@@ -226,19 +226,15 @@
       banner(error.message + ' If the connection was lost during submission, check the terminal before retrying.', 'warning');
     } finally { busy = false; controls(); }
   }
-  function markdown() {
-    let text = 'Please address the following feedback\n\n';
-    if ($('overall').value.trim()) text += $('overall').value.trim() + '\n\n';
-    let number = 0;
-    for (const comment of comments.filter(c => c.body.trim())) {
-      const file = metadata.files.find(f => f.id === comment.fileId);
-      const display = path => /[\x00-\x1f\x7f]/.test(path) ? JSON.stringify(path) : path;
-      const path = file.oldPath && file.newPath && file.oldPath !== file.newPath
-        ? `${display(file.oldPath)} -> ${display(file.newPath)}` : display(file.newPath || file.oldPath);
-      text += `${++number}. [git diff] ${path}${comment.side === 'file' ? '' : ':' + comment.startLine + ' (' + comment.side + ')'}\n`;
-      text += comment.body.trim().split(/\r?\n/).map(line => '   ' + line).join('\n') + '\n\n';
+  // The server owns the Markdown format; Copy must match what stdout would emit.
+  async function markdown() {
+    const response = await fetch('/api/preview', { method: 'POST', cache: 'no-store',
+      headers: { 'X-Review-Token': token, 'Content-Type': 'application/json' }, body: JSON.stringify(payload()) });
+    if (!response.ok) {
+      const result = await response.json().catch(() => ({}));
+      throw new Error(result.error || `Request failed (${response.status}).`);
     }
-    return text.trimEnd() + '\n';
+    return response.text();
   }
   $('filter').addEventListener('input', renderFiles);
   $('filter').addEventListener('keydown', event => { if (event.key === 'Escape') { $('filter').value = ''; renderFiles(); } });
@@ -262,8 +258,8 @@
   $('finish').addEventListener('click', () => void finish(false));
   $('cancel').addEventListener('click', () => void finish(true));
   $('copy').addEventListener('click', async () => {
-    try { await navigator.clipboard.writeText(markdown()); banner('Feedback copied. Finish review to submit, or Cancel to discard.'); }
-    catch { banner('Browser clipboard access failed. You can still submit feedback through the CLI.', 'warning'); }
+    try { await navigator.clipboard.writeText(await markdown()); banner('Feedback copied. Finish review to submit, or Cancel to discard.'); }
+    catch (error) { banner('Copy failed: ' + error.message + ' You can still submit feedback through the CLI.', 'warning'); }
   });
   async function init() {
     const fragment = location.hash.slice(1);

@@ -109,11 +109,22 @@ public static class Program
                     await context.Response.WriteAsJsonAsync(new { error = error is JsonException ? "Malformed JSON request." : error.Message });
                 }
             });
-            foreach (var asset in new[] { ("/", "index.html", "text/html"), ("/app.js", "app.js", "text/javascript"), ("/style.css", "style.css", "text/css") })
+            // Assets are discovered from the published wwwroot instead of being allowlisted by hand:
+            // adding a browser file cannot silently 404, and an unknown extension fails startup.
+            var assetTypes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
-                string path = Path.Combine(AppContext.BaseDirectory, "wwwroot", asset.Item2);
-                if (!File.Exists(path)) throw new IOException("Missing published browser assets; build/publish the application first.");
-                app.MapGet(asset.Item1, () => Results.File(path, asset.Item3));
+                [".html"] = "text/html", [".js"] = "text/javascript", [".css"] = "text/css"
+            };
+            string assetRoot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
+            if (!File.Exists(Path.Combine(assetRoot, "index.html")))
+                throw new IOException("Missing published browser assets; build/publish the application first.");
+            foreach (string file in Directory.EnumerateFiles(assetRoot, "*", SearchOption.AllDirectories))
+            {
+                string assetName = Path.GetRelativePath(assetRoot, file).Replace('\\', '/');
+                if (!assetTypes.TryGetValue(Path.GetExtension(file), out string? contentType))
+                    throw new IOException("Unsupported published browser asset: " + assetName);
+                app.MapGet("/" + assetName, () => Results.File(file, contentType));
+                if (assetName == "index.html") app.MapGet("/", () => Results.File(file, contentType));
             }
             app.MapGet("/api/session", () => Results.Json(session.Metadata(), ReviewSession.Json));
             app.MapGet("/api/files/{id}", async (string id, HttpContext context) =>
@@ -136,6 +147,15 @@ public static class Program
                 }
                 catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
                 finally { session.Disconnect(version); }
+            });
+            app.MapPost("/api/preview", async (HttpContext context) =>
+            {
+                // Single source of truth for feedback Markdown: the browser Copy action
+                // reuses the exact formatter that produces final stdout.
+                using var linked = CancellationTokenSource.CreateLinkedTokenSource(operation.Token, context.RequestAborted);
+                var submission = await context.Request.ReadFromJsonAsync<Submission>(ReviewSession.Json, linked.Token)
+                    ?? throw new ArgumentException("A submission body is required.");
+                return Results.Text(ReviewSession.Markdown(session.Validate(submission)), "text/markdown");
             });
             app.MapPost("/api/submit", async (HttpContext context) =>
             {
@@ -175,10 +195,8 @@ public static class Program
             lock (hosts)
             {
                 foreach (var url in new[] { local, visible, new Uri($"http://localhost:{bound.Port}/") })
-                {
                     hosts.Add(url.Authority);
-                    origins.Add(url.GetLeftPart(UriPartial.Authority));
-                }
+                foreach (string authority in hosts) origins.Add("http://" + authority);
             }
             string launchUrl = visible.AbsoluteUri + "#" + session.Token;
             Console.Error.WriteLine("Review URL: " + launchUrl);

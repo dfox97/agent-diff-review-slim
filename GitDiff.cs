@@ -64,18 +64,7 @@ public static class GitDiff
         });
         async Task<byte[]> ReadBounded(Stream stream, int limit)
         {
-            try
-            {
-                using var buffer = new MemoryStream();
-                var chunk = new byte[8192];
-                int count;
-                while ((count = await stream.ReadAsync(chunk, deadline.Token)) > 0)
-                {
-                    if (buffer.Length + count > limit) throw new IOException("Git output exceeded the review limit.");
-                    buffer.Write(chunk, 0, count);
-                }
-                return buffer.ToArray();
-            }
+            try { return await ReadBoundedAsync(stream, limit, "Git output exceeded the review limit.", deadline.Token); }
             catch { deadline.Cancel(); throw; }
         }
         async Task WriteInput()
@@ -90,7 +79,22 @@ public static class GitDiff
         var stdout = ReadBounded(process.StandardOutput.BaseStream, maxBytes);
         var stderr = ReadBounded(process.StandardError.BaseStream, 64_000);
         await Task.WhenAll(stdout, stderr, WriteInput(), process.WaitForExitAsync(deadline.Token));
+        // stdout is decoded strictly by GitResult.Text so undecodable path bytes fail closed;
+        // stderr is diagnostics only, so it decodes leniently rather than masking the real error.
         return new(process.ExitCode, await stdout, Encoding.UTF8.GetString(await stderr));
+    }
+
+    public static async Task<byte[]> ReadBoundedAsync(Stream stream, int limit, string limitMessage, CancellationToken cancellation)
+    {
+        using var buffer = new MemoryStream();
+        var chunk = new byte[8192];
+        int count;
+        while ((count = await stream.ReadAsync(chunk, cancellation)) > 0)
+        {
+            if (buffer.Length + count > limit) throw new IOException(limitMessage);
+            buffer.Write(chunk, 0, count);
+        }
+        return buffer.ToArray();
     }
 
     public static IReadOnlyList<(string Status, string? OldPath, string? NewPath)> ParseNames(string text)
@@ -195,11 +199,13 @@ public sealed class GitRepository
     private readonly Dictionary<string, FileDiff> loaded = [];
     private readonly SemaphoreSlim loadGate = new(1);
     private long retained;
+    private ReviewFile[]? frozenFiles;
     public string Root { get; private set; } = "";
     public string? Head { get; private set; }
     public string? Base { get; private set; }
     public string? MergeBase { get; private set; }
-    public IReadOnlyList<ReviewFile> Files => entries.Values.Select(e => e.File).ToArray();
+    // Entries are only added while opening; the indexed list is immutable once OpenAsync returns.
+    public IReadOnlyList<ReviewFile> Files => frozenFiles ??= entries.Values.Select(e => e.File).ToArray();
 
     public static async Task<GitRepository> OpenAsync(string directory, string? requestedBase, CancellationToken ct = default)
     {
@@ -337,15 +343,7 @@ public sealed class GitRepository
                     if (ReadStamp(path) != entry.WorkingStamp) throw new IOException("Working file changed since indexing; restart the review.");
                     await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
                     if (stream.Length > GitDiff.MaxFileBytes) throw new IOException("File exceeds the 1,000,000 byte limit.");
-                    using var buffer = new MemoryStream();
-                    var chunk = new byte[8192];
-                    int n;
-                    while ((n = await stream.ReadAsync(chunk, ct)) > 0)
-                    {
-                        if (buffer.Length + n > GitDiff.MaxFileBytes) throw new IOException("File exceeds the review limit.");
-                        buffer.Write(chunk, 0, n);
-                    }
-                    newBytes = buffer.ToArray();
+                    newBytes = await GitDiff.ReadBoundedAsync(stream, GitDiff.MaxFileBytes, "File exceeds the review limit.", ct);
                     if (ReadStamp(GitDiff.SafeWorkingPath(Root, entry.File.NewPath)) != entry.WorkingStamp)
                         throw new IOException("Working file changed while loading; restart the review.");
                 }

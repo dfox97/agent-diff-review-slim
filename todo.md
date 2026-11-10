@@ -1,20 +1,14 @@
 # TODO
 
 The first CLI/UI slice is merged to `main` (PR #1). Browser review, working-tree
-and committed base comparisons, dependency-free syntax colouring, and the
-optional pi adapter are in place. It is usable locally, but is not yet a
-drop-in replacement for the work Claude hook.
+and committed base comparisons, and the optional pi adapter are in place. It is
+usable locally, but is not yet a drop-in replacement for the work Claude hook.
 
 Nothing here is agreed priority beyond section 1; read `REFACTOR-PLAN.md` before
-changing scope. Two invariants are easy to break:
+changing scope. One invariant is easy to break:
 
-- **Every browser asset must be allowlisted in `Program.cs`.** Assets are served
-  by an explicit map, not `UseStaticFiles`. `/highlight.js` once 404ed this way
-  and the diff rendered blank rows. The regression harness now fails if a
-  published `wwwroot` file is unreachable — keep it that way.
-- **Highlighted rows are HTML.** The highlighter escapes its own output; any new
-  branch that injects row text into `innerHTML` must escape first, and must fall
-  back to plain text whenever the highlighter is missing.
+- **Diff rows are plain text.** Source is rendered with `textContent`, never
+  `innerHTML`, so there is no escaping path to get wrong. Keep it that way.
 
 ## Local pi test before Claude
 
@@ -61,36 +55,7 @@ changing scope. Two invariants are easy to break:
 - [ ] Preserve scope/commit-specific comment anchors and review state when
   switching between these views.
 
-## 4. Syntax colouring follow-ups (`wwwroot/highlight.js`)
-
-Shipped and verified: escaping round-trip on adversarial rows, CRLF rows, 4000
-C# rows in ~44 ms, and real-browser colours for C#, CSS and JSON. Remaining
-gaps are known and deliberate, not accidental:
-
-- [ ] No automated per-language assertions in the .NET harness. Coverage today is
-  ad-hoc Node checks plus a browser probe; add a fixture check (row text +
-  language -> expected classes) so changes are guarded. The escaping invariant is
-  the priority, since `app.js` assigns these strings to `innerHTML`.
-- [ ] Language map is approximate where it reuses another spec: `fs`/`vb` use the
-  C# rules, `ps1` uses the shell rules, `toml`/`ini` use the YAML rules, `jsx`/
-  `tsx` use the JS rules. Either widen the specs or document the approximation
-  in the README.
-- [ ] Not covered at all and rendered as plain text: Java, Kotlin, Go, Rust,
-  Ruby, C/C++, PHP, Swift, Terraform/HCL.
-- [ ] C# interpolated strings are coloured as one string; `{expression}` holes are
-  not sub-highlighted. Acceptable for review reading; do not build a parser.
-- [ ] Token colours target a dark background only (VS Code Dark Modern values in
-  `style.css`). A light theme, or honouring `prefers-color-scheme`, is unbuilt.
-- [ ] Files over 512 KB, and files whose extension is unknown, deliberately fall
-  back to uncoloured text; confirm that reads acceptably on a large real diff.
-- [ ] The window/UI screenshot was re-captured after this feature; re-capture it
-  again whenever the diff rows or toolbar change, or the README drifts.
-- [ ] Decide whether to commit the local capture helper: it currently lives in the
-  gitignored `artifacts/screenshot-build/` (Node built-ins, drives headless Edge
-  over CDP). `checks/screenshot.mjs` with a README note would fit the existing
-  optional-script pattern.
-
-## 5. Platform acceptance
+## 4. Platform acceptance
 
 - [ ] Manually verify native Edge app launch, close and completed-window behaviour.
 - [ ] Verify Chrome, including the review and clipboard workflows.
@@ -104,12 +69,11 @@ gaps are known and deliberate, not accidental:
   and the UI looks good. This does not yet establish manual close/completion
   behaviour or Claude/dev-container compatibility.
 - 15 regression checks passed, 0 failed, 1 symlink scenario skipped. The HTTP
-  check now also asserts that every published `wwwroot` asset is served, and was
-  confirmed to fail when `/highlight.js` was removed from the allowlist.
-- Release build/publish and JavaScript syntax checks passed.
-- Syntax colouring: escaping round-trip and CRLF checks passed in Node; a headless
-  Edge probe confirmed served assets, 74 token spans and `#569cd6` keyword
-  colour. Colours were not eyeballed beyond one C#/CSS/JSON sample.
+  check asserts the served `wwwroot` root and that the Copy preview endpoint
+  returns exactly the Markdown that final submission writes to stdout.
+- Release build/publish and JavaScript syntax checks passed. A published-off
+  smoke confirmed `/`, `/app.js`, `/style.css`, `/api/preview`, token/origin
+  rejection and a clean-stdout submission.
 - Installed Edge headless smoke passed: rendering, inline comments, overall note,
   reviewed state, refresh recovery and successful submission with clean stdout.
 - Real pi 1.4.0 RPC smoke passed with the optional adapter: draft insertion,
@@ -128,7 +92,7 @@ no `npm install`, nothing global is modified by the app or these checks.
 
 ```sh
 dotnet build AgentDiffReview.csproj -c Release      # TreatWarningsAsErrors is on
-dotnet run --project checks/Checks.csproj -c Release # 15 pass, 1 symlink skip
+dotnet run --file checks/Program.cs -c Release       # 15 pass, 1 symlink skip
 dotnet publish AgentDiffReview.csproj -c Release -o artifacts/publish
 ```
 

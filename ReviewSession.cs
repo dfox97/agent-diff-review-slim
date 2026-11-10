@@ -16,6 +16,8 @@ public sealed class ReviewSession(GitRepository repository, int graceSeconds = 5
 {
     public static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     public const int MaxRequestBytes = 256_000;
+    // Formatted output (Markdown/JSON framing) can exceed the request body it was built from.
+    public const int MaxOutputBytes = 512_000;
     private readonly object state = new();
     private readonly TaskCompletionSource<TerminalResult> completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private TerminalResult? terminal;
@@ -87,6 +89,7 @@ public sealed class ReviewSession(GitRepository repository, int graceSeconds = 5
             throw new ArgumentException("Review exceeds note/comment limits.");
         var comments = new List<FeedbackComment>();
         var ids = new HashSet<string>(StringComparer.Ordinal);
+        var lineIndexes = new Dictionary<(string FileId, string Side), HashSet<int>>();
         foreach (var comment in submission.Comments)
         {
             if (comment is null || string.IsNullOrWhiteSpace(comment.Id) || comment.Id.Length > 80 ||
@@ -105,8 +108,10 @@ public sealed class ReviewSession(GitRepository repository, int graceSeconds = 5
                     comment.EndLine is not > 0 || comment.EndLine < comment.StartLine ||
                     captured is null || captured.Omission is not null)
                     throw new ArgumentException("Invalid inline comment anchor.");
-                var lines = captured.Rows.Select(r => comment.Side == "old" ? r.OldLine : r.NewLine)
-                    .Where(n => n.HasValue).Select(n => n!.Value).ToHashSet();
+                if (!lineIndexes.TryGetValue((comment.FileId, comment.Side), out var lines))
+                    lineIndexes[(comment.FileId, comment.Side)] = lines = captured.Rows
+                        .Select(r => comment.Side == "old" ? r.OldLine : r.NewLine)
+                        .Where(n => n.HasValue).Select(n => n!.Value).ToHashSet();
                 if (comment.EndLine - comment.StartLine > GitDiff.MaxRows ||
                     !lines.Contains(comment.StartLine.Value) || !lines.Contains(comment.EndLine.Value))
                     throw new ArgumentException("Comment line range is outside the captured file.");
@@ -187,7 +192,7 @@ public sealed class ReviewSession(GitRepository repository, int graceSeconds = 5
         cancellation.ThrowIfCancellationRequested();
         string output = options.Format == "json" ? JsonSerializer.Serialize(feedback, Json) + "\n" : Markdown(feedback);
         byte[] bytes = Encoding.UTF8.GetBytes(output);
-        if (bytes.Length > MaxRequestBytes * 2)
+        if (bytes.Length > MaxOutputBytes)
             throw new IOException("Formatted feedback exceeds the output limit.");
         if (options.Output is null)
         {

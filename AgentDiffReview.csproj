@@ -7,11 +7,13 @@
     <RootNamespace>AgentDiffReview</RootNamespace>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <DefaultItemExcludes>$(DefaultItemExcludes);artifacts/**</DefaultItemExcludes>
+    <!-- Assets are served from a wwwroot scan, not static-file middleware; precompressed
+         .br/.gz siblings would only be dead weight (and unsupported extensions) there. -->
+    <CompressionEnabled>false</CompressionEnabled>
   </PropertyGroup>
   <ItemGroup>
+    <!-- checks/ is a standalone file-based app that references this project. -->
     <Compile Remove="checks/**/*.cs" />
-    <Content Remove="checks/**" />
-    <None Remove="checks/**" />
     <Content Update="wwwroot/**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

@@ -39,15 +39,17 @@ From this repository:
 
 ```sh
 dotnet build AgentDiffReview.csproj -c Release
-dotnet run --project checks/Checks.csproj -c Release
+dotnet run --file checks/Program.cs -c Release
 dotnet publish AgentDiffReview.csproj -c Release -o artifacts/publish
 ```
 
 Publish into a fresh output directory for deployment; publishing over an older
-release does not remove obsolete files.
+release does not remove obsolete files, and a leftover asset with an unknown
+extension now fails startup instead of being ignored.
 
-The checks are a small .NET console harness, without a test framework or new CI
-setup. They use disposable repositories and run real HTTP/process-level checks.
+The checks are a small .NET console harness — a file-based app that references the
+main project, so there is no second project file — without a test framework or new
+CI setup. They use disposable repositories and run real HTTP/process-level checks.
 Symlink checks are reported as skipped if the OS denies link creation.
 
 Build/publish separately from review launches: build output is not agent feedback.
@@ -180,7 +182,8 @@ acceptance. **pi testing does not establish Claude hook compatibility.**
   to comment. Source is rendered with `textContent`, not HTML or a syntax parser.
 - Inline/file comments with immediate editing and deletion, and an overall note.
 - Reviewed markers, comment counts, wrapping and expandable unchanged context.
-- Browser Copy feedback action; no cross-OS clipboard helper.
+- Browser Copy feedback action, formatted by the server so it matches final
+  stdout exactly; no cross-OS clipboard helper.
 - Tab-scoped refresh recovery for comments, notes, selection and reviewed markers.
 
 Refresh recovery uses bounded `sessionStorage` for the token and draft, not

@@ -10,9 +10,8 @@ work-container verification are still pending.
 Implemented: `diff-review-slim open`, working-tree and committed base comparisons,
 root/unborn working-tree handling, safe lazy captures, Git-generated full-context
 patches, a split/narrow diff UI, inline/file/overall comments, reviewed markers,
-filter/tree/wrap/context controls, dependency-free syntax colouring (a local
-tokenizer in `wwwroot/highlight.js`, deliberately not Monaco; see `todo.md` for
-its known approximations), Markdown/JSON/atomic file output, private HTTP session
+filter/tree/wrap/context controls, plain-text diff rows (no syntax colouring or
+HTML rendering path), Markdown/JSON/atomic file output, private HTTP session
 protection, browser-disconnect cancellation and tab-scoped reload recovery.
 Windows Edge/Chrome launch is best-effort through shell registration; no bridge
 or environment installation was added.
@@ -33,10 +32,12 @@ checks and no agent/model work. This optional check uses existing Python/pi;
 neither is required by the .NET core or its regression harness. Interactive pi
 terminal/Escape acceptance remains pending. This is not Claude hook verification.
 
-Browsers assets are served by an explicit map in `Program.cs`, not by
-`UseStaticFiles`; any new `wwwroot` file must be added there. The regression
-harness asserts every published asset is reachable, because a missing entry fails
-silently as a 404 and once blanked the diff rows.
+Browsers assets are served by a startup scan of the published `wwwroot`, not by
+`UseStaticFiles`, so a new browser file cannot silently 404 and no allowlist has
+to be maintained. Unknown asset extensions fail startup rather than being served.
+Static-asset compression is disabled because those `.br`/`.gz` siblings would
+never be served by `Results.File`. The regression harness checks the served root
+and that the Copy preview matches final stdout byte for byte.
 
 The current slice starts with working-tree/base comparisons as an implementation
 order, not an agreed decision to omit other scopes from the first release.
@@ -119,7 +120,7 @@ drop them or claim their first-release deferral has been agreed.
 | pi/opencode draft insertion and pi Escape cancellation | Claude is the only required work integration. pi may exercise the new CLI locally; a dedicated pi adapter is optional and test-only. opencode migration is out of scope. No host SDKs in the .NET app |
 | Claude slash command/hook and cancellation blocking | Replace Node hook implementation with the same executable's hook mode; verify installed Claude contract |
 | Open in nvim, line jump, terminal selection and window minimisation | Defer from the work version; offer copyable path:line instead |
-| Monaco syntax colouring | Replaced by a small local tokenizer: strings, comments, numbers, keywords and identifier classes per line extension. Not a parser, no intraline diff |
+| Monaco syntax colouring | Dropped entirely: rows render as plain text in `textContent`, with no tokenizer, no HTML and no intraline diff |
 | Intraline diff, minimap, folding and editor commands | Deliberately simplify; do not recreate an IDE |
 
 There are no explicit application-wide review shortcuts in the current browser
@@ -198,7 +199,8 @@ Current implementation files (hook mode is still pending):
 - `CliOptions.cs`: launch-time CLI options and forwarding validation.
 - `ReviewSession.cs`: completion, comment validation, feedback and atomic output.
 - `GitDiff.cs`: bounded Git invocation, indexing, safe captures and patch parsing.
-- `checks/Checks.csproj` and `checks/Program.cs`: separate dependency-free checks.
+- `checks/Program.cs`: dependency-free checks as a .NET 10 file-based app that
+  references the main project; no second project file or duplicated build output.
 - `wwwroot/index.html`
 - `wwwroot/app.js`
 - `wwwroot/style.css`
