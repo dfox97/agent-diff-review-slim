@@ -6,9 +6,10 @@ A small, human-operated Git review tool built with .NET 10 and an existing Edge
 or Chrome browser. No third-party NuGet or npm packages, LLM calls or source edits.
 
 **Implemented:** working-tree and committed branch comparisons, browser comments,
-Markdown/JSON feedback and an optional pi adapter. **Not implemented:** Claude
-hook integration, last-commit/history/all-files views. Work-container compatibility
-still needs verification; see [todo.md](todo.md).
+Markdown/JSON feedback and a Claude command/hook adapter matching Agent Diff
+Review's `UserPromptExpansion` contract. **Not implemented:** last-commit/history/
+all-files views. Live Claude and work-container compatibility still need
+verification; see [todo.md](todo.md).
 
 ## Prerequisites and build
 
@@ -89,33 +90,40 @@ includes repository/commit identity, paths, side/line ranges and captured-conten
 hashes where available. File output is written to a unique temporary sibling,
 then renamed into place. A forced exit can leave partial stdout or temporary files.
 
-## Optional pi adapter
+## Claude command and hook
 
-Publish first, then start a **new, idle pi session** in the checkout to review:
+Publish first, then restart Claude Code in this checkout and run `/diff-review`
+or `/diff-review main`. The versioned [command](.claude/commands/diff-review.md)
+and [hook settings](.claude/settings.json) use the slim browser reviewer, not the
+original app. No Node/npm installation or extra packages are required.
 
-```sh
-pi --extension /path/to/agent-diff-review-slim/integrations/pi.ts
-```
+**Compatibility:** this deliberately matches the other Agent Diff Review repo's
+`UserPromptExpansion` hook contract (`command_name`, `command_args`, `cwd` input;
+`additionalContext` or `decision: block` output). Claude is not installed on the
+development PC, so live compatibility is **not verified**. Confirm that your
+installed Claude version supports this event before relying on it. Do not
+substitute a notification-only hook: cancellation must block command expansion.
 
-Run `/diff-review-slim` or `/diff-review-slim main`. It reviews pi's working folder.
-Successful feedback is appended to the editor as a **draft**, never auto-sent or
-added to model context. Cancel, empty feedback or errors leave the editor alone.
-Escape in the waiting screen or `/diff-review-slim-cancel` cancels the reviewer;
-session shutdown/reload also cancels it, without killing shared browser processes.
+- Non-empty Finish: feedback enters Claude's context and the command asks Claude
+  to address each comment. Unlike the personal Pi adapter, this is **not a draft**.
+- Cancel, browser close/disconnect, empty Finish, timeout or failure: block
+  expansion; no feedback is returned to Claude.
+- The checkout comes from hook `cwd`; the optional base comes from `command_args`.
+  No base reviews HEAD → disk; a base reviews committed merge-base → HEAD.
+- `hook` mode keeps stdout exclusively for one JSON response, including on errors.
+  Browser URLs and diagnostics stay on stderr, never in the returned context.
+  Hook stderr can contain the private review URL; do not log or share it.
+- The reviewer deadline is at most 570 seconds, leaving room within the configured
+  600-second hook timeout. Do not lower the hook timeout below that deadline.
 
-The adapter uses the existing pi installation, not extra packages or global config.
-Its default DLL is `artifacts/publish/diff-review-slim.dll` relative to this repo.
-Override with `DIFF_REVIEW_SLIM_DLL`; set `DIFF_REVIEW_SLIM_NO_OPEN=1` for manual URLs.
-The private URL appears in pi's UI; RPC clients must not log or share it.
+For another project, copy/merge the command and hook settings into its `.claude`
+folder, and change the hook command's DLL path to your published slim application
+(use a quoted absolute path). Do not overwrite existing project hooks. Browser,
+port and private forwarding options from `open` also work after `hook`; for
+example, append `--no-open` for manual URLs or container forwarding.
 
-Optional integration checks require existing Python 3 and pi, but no model turn:
-
-```sh
-python checks/pi-smoke.py
-```
-
-`--pi` and `--dll` override locations. These checks do not prove Claude hook
-compatibility. Interactive pi acceptance remains in [todo.md](todo.md).
+Pi is a personal, untracked integration on the development PC; a fresh clone has
+no Pi extension, Pi smoke test or Pi setup requirement.
 
 ## Containers, WSL and cancellation
 
@@ -167,8 +175,8 @@ through the actual proxy/forwarding setup: local checks do not prove it.
 No packages does not mean automatic workplace approval. Use approved, patched
 runtimes, Git and browsers. Confirm permission for temporary source copies,
 browser profiles/extensions, potentially disk-backed draft storage, clipboard use,
-private forwarding and any feedback sent to an agent. Claude hook integration
-remains unimplemented; standalone use does not establish compatibility or approval.
+private forwarding and any feedback sent to an agent. The Claude adapter's local
+protocol checks do not establish live Claude compatibility or workplace approval.
 
 ## Relationship and licence
 

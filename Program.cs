@@ -11,6 +11,8 @@ public static class Program
 {
     public static async Task<int> Main(string[] args)
     {
+        if (args.Length > 0 && args[0] == "hook")
+            return await ClaudeHook.RunAsync(args[1..], (options, write) => RunAsync(options, write));
         try
         {
             var options = CliOptions.Parse(args);
@@ -26,7 +28,7 @@ public static class Program
         }
     }
 
-    private static async Task<int> RunAsync(CliOptions options)
+    private static async Task<int> RunAsync(CliOptions options, Func<Feedback, Task>? writeFeedback = null)
     {
         using var operation = new CancellationTokenSource(TimeSpan.FromSeconds(options.TimeoutSeconds));
         ReviewSession? session = null;
@@ -153,7 +155,7 @@ public static class Program
                 var submission = await context.Request.ReadFromJsonAsync<Submission>(ReviewSession.Json, linked.Token)
                     ?? throw new ArgumentException("A submission body is required.");
                 var result = await session.SubmitAsync(submission,
-                    feedback => ReviewSession.WriteAsync(feedback, options, operation.Token), operation.Token);
+                    writeFeedback ?? (feedback => ReviewSession.WriteAsync(feedback, options, operation.Token)), operation.Token);
                 try
                 {
                     context.Response.StatusCode = result.Status == "error" ? 500 : 200;

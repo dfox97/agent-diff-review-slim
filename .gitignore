@@ -19,6 +19,15 @@
 .env.*
 !.env.example
 
+# Personal Pi integration (kept on this PC, not distributed)
+/integrations/pi.ts
+/checks/pi-smoke.py
+__pycache__/
+*.pyc
+
+# Claude machine-local settings
+.claude/settings.local.json
+
 # Operating system files
 .DS_Store
 Thumbs.db

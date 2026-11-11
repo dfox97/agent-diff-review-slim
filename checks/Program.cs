@@ -367,6 +367,94 @@ await Check("HTTP Cancel, empty submission and overall deadline produce no feedb
     }
 });
 
+await Check("Claude hook submits Markdown context for cwd and optional committed base", async () =>
+{
+    using var fixture = await Fixture.Create();
+    await fixture.Write("file.txt", "old\n"); await fixture.Commit();
+    await fixture.Git("checkout", "-qb", "feature");
+    await fixture.Write("file.txt", "committed\n"); await fixture.Commit();
+    await fixture.Write("file.txt", "dirty\n");
+    foreach (string baseRef in new[] { "", "main" })
+    {
+        string input = JsonSerializer.Serialize(new { hook_event_name = "UserPromptExpansion",
+            command_name = baseRef == "" ? "diff-review" : "project:diff-review",
+            command_args = " " + baseRef + " ", cwd = fixture.Path });
+        // The hook cwd, not the launcher's repo, must determine the reviewed checkout.
+        await using var host = await Reviewer.Start(Path.GetTempPath(), hookInput: input);
+        using var metadata = JsonDocument.Parse(await (await host.Get("/api/session")).Content.ReadAsStringAsync());
+        Assert(Path.GetFullPath(metadata.RootElement.GetProperty("repository").GetString()!) == Path.GetFullPath(fixture.Path),
+            "Hook did not review the checkout from cwd");
+        Assert(metadata.RootElement.GetProperty("base").GetString() == (baseRef == "" ? null : baseRef));
+        string id = metadata.RootElement.GetProperty("files")[0].GetProperty("id").GetString()!;
+        string diff = await (await host.Get("/api/files/" + id)).Content.ReadAsStringAsync();
+        Assert(diff.Contains(baseRef == "" ? "dirty" : "committed"));
+        if (baseRef != "") Assert(!diff.Contains("dirty"));
+        var payload = new Submission("Claude overall feedback — café", [new("c1", id, "new", 1, 1, "Claude inline feedback")]);
+        using var submitted = await host.Post("/api/submit", JsonSerializer.Serialize(payload, ReviewSession.Json));
+        Assert(submitted.IsSuccessStatusCode);
+        var result = await host.Wait();
+        Assert(result.Code == 0 && !result.Output.Contains("Review URL"));
+        using var response = JsonDocument.Parse(result.Output);
+        var hook = response.RootElement.GetProperty("hookSpecificOutput");
+        Assert(hook.GetProperty("hookEventName").GetString() == "UserPromptExpansion");
+        string context = hook.GetProperty("additionalContext").GetString()!;
+        Assert(context.Contains("Claude overall feedback — café") && context.Contains("Claude inline feedback") && context.Contains("file.txt:1 (new)"));
+        Assert(!response.RootElement.TryGetProperty("decision", out _));
+    }
+});
+
+await Check("Claude hook Cancel, empty, browser close and deadline block expansion", async () =>
+{
+    using var fixture = await Fixture.Create();
+    string input = JsonSerializer.Serialize(new { hook_event_name = "UserPromptExpansion",
+        command_name = "diff-review", command_args = "", cwd = fixture.Path });
+    foreach (string action in new[] { "cancel", "empty", "close", "deadline" })
+    {
+        await using var host = await Reviewer.Start(fixture.Path, action == "deadline" ? 2 : 20, input);
+        if (action == "close") { using var lifetime = await host.Lifetime(); }
+        else if (action != "deadline")
+        {
+            using var response = await host.Post(action == "cancel" ? "/api/cancel" : "/api/submit",
+                action == "cancel" ? "{}" : "{\"overallNote\":\" \",\"comments\":[]}");
+            Assert(response.IsSuccessStatusCode);
+        }
+        var result = await host.Wait();
+        using var json = JsonDocument.Parse(result.Output);
+        Assert(result.Code == 0 && json.RootElement.GetProperty("decision").GetString() == "block");
+        Assert(!json.RootElement.TryGetProperty("hookSpecificOutput", out _) && !result.Output.Contains("Review URL"));
+    }
+});
+
+await Check("Claude hook rejects malformed input, CLI failures and unsafe output options", async () =>
+{
+    using var fixture = await Fixture.Create();
+    string input = JsonSerializer.Serialize(new { hook_event_name = "UserPromptExpansion",
+        command_name = "diff-review", command_args = "nonexistent-hook-base", cwd = fixture.Path });
+    var cases = new (string Input, string[] Args)[]
+    {
+        ("{", []), ("{}", []), ("null", []), (new string('x', 64001), []),
+        ("{\"command_name\":42}", []),
+        ("{\"command_name\":\"diff-review\",\"hook_event_name\":\"UserPromptSubmit\"}", []),
+        (input, []), (input, ["--out", Path.Combine(fixture.Path, "must-not-exist.md")]),
+        (input, ["--format", "json"]), (input, ["--base", "main"]),
+        (input, ["--timeout-seconds", "600"]), (input, ["--unknown-option"])
+    };
+    foreach (var test in cases)
+    {
+        var result = await Reviewer.RunHook(test.Input, test.Args);
+        using var json = JsonDocument.Parse(result.Output);
+        Assert(result.Code == 0 && json.RootElement.GetProperty("decision").GetString() == "block");
+        Assert(!json.RootElement.TryGetProperty("hookSpecificOutput", out _) && !result.Output.Contains("Review URL"));
+    }
+    Assert(!File.Exists(Path.Combine(fixture.Path, "must-not-exist.md")));
+    foreach (string name in new[] { "other", "not-diff-review", "diff-review-slim" })
+    {
+        var result = await Reviewer.RunHook(JsonSerializer.Serialize(new { command_name = name }));
+        using var json = JsonDocument.Parse(result.Output);
+        Assert(result.Code == 0 && !json.RootElement.EnumerateObject().Any(), "Unrelated command was intercepted");
+    }
+});
+
 Console.WriteLine($"\n{passed} passed, {failed} failed, {skipped} skipped");
 return failed == 0 ? 0 : 1;
 
@@ -413,14 +501,20 @@ sealed class Reviewer : IAsyncDisposable
         this.process = process; this.address = address; this.token = token;
         output = process.StandardOutput.ReadToEndAsync(); error = process.StandardError.ReadToEndAsync();
     }
-    public static async Task<Reviewer> Start(string repository, int timeoutSeconds = 20)
+    public static async Task<Reviewer> Start(string repository, int timeoutSeconds = 20, string? hookInput = null)
     {
         string assembly = typeof(AgentDiffReview.Program).Assembly.Location;
-        var start = new ProcessStartInfo("dotnet") { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
-        foreach (string arg in new[] { assembly, "open", "--repo", repository, "--no-open", "--grace-seconds", "1", "--timeout-seconds", timeoutSeconds.ToString() }) start.ArgumentList.Add(arg);
+        var start = new ProcessStartInfo("dotnet") { UseShellExecute = false, RedirectStandardOutput = true,
+            RedirectStandardError = true, RedirectStandardInput = hookInput is not null };
+        foreach (string arg in new[] { assembly, hookInput is null ? "open" : "hook", "--repo", repository, "--no-open", "--grace-seconds", "1", "--timeout-seconds", timeoutSeconds.ToString() }) start.ArgumentList.Add(arg);
         var process = Process.Start(start)!;
         try
         {
+            if (hookInput is not null)
+            {
+                await process.StandardInput.WriteAsync(hookInput);
+                process.StandardInput.Close();
+            }
             while (await process.StandardError.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(10)) is { } line)
             {
                 if (!line.StartsWith("Review URL: ", StringComparison.Ordinal)) continue;
@@ -430,6 +524,26 @@ sealed class Reviewer : IAsyncDisposable
             throw new Exception("Reviewer exited before printing its URL");
         }
         catch { if (!process.HasExited) process.Kill(true); process.Dispose(); throw; }
+    }
+    public static async Task<(int Code, string Output)> RunHook(string input, params string[] args)
+    {
+        var start = new ProcessStartInfo("dotnet") { UseShellExecute = false, RedirectStandardInput = true,
+            RedirectStandardOutput = true, RedirectStandardError = true };
+        foreach (string arg in new[] { typeof(AgentDiffReview.Program).Assembly.Location, "hook", "--no-open" }.Concat(args))
+            start.ArgumentList.Add(arg);
+        using var process = Process.Start(start)!;
+        var output = process.StandardOutput.ReadToEndAsync();
+        var error = process.StandardError.ReadToEndAsync();
+        try
+        {
+            // Large invalid input can make the hook close stdin before the write completes.
+            try { await process.StandardInput.WriteAsync(input); process.StandardInput.Close(); }
+            catch (IOException) { }
+            await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
+            await error; // Drain diagnostics without printing private data.
+            return (process.ExitCode, await output);
+        }
+        finally { if (!process.HasExited) { process.Kill(true); await process.WaitForExitAsync(); } }
     }
     private HttpRequestMessage Request(HttpMethod method, string path, string? tokenOverride = null)
     {

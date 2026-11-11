@@ -9,6 +9,7 @@ public sealed record CliOptions(
 {
     public const string Usage = """
         Usage: diff-review-slim open [base] [options]
+               diff-review-slim hook [options]  (Claude UserPromptExpansion JSON on stdin)
 
           --repo <path>             Checkout to review (default: current directory)
           --base <branch>           Committed merge-base..HEAD comparison
@@ -28,7 +29,10 @@ public sealed record CliOptions(
         go to stderr. Git must support --no-lazy-fetch; working-tree review refuses
         configured clean/process filters.
         Non-loopback binding is explicit: keep the host-forwarded port private.
-        Claude hook mode and history/all-files scopes are not implemented yet.
+        Hook mode returns additionalContext only after a successful non-empty review;
+        otherwise it blocks expansion. Base and checkout come from the hook input.
+        Hook deadline must be <=570 seconds for the configured 600-second hook timeout.
+        History/all-files scopes are not implemented yet.
         """;
 
     public static CliOptions Parse(string[] args)
@@ -78,7 +82,8 @@ public sealed record CliOptions(
                 default:
                     if (arg.StartsWith('-')) throw new ArgumentException($"Unknown option: {arg}");
                     if (@base is not null) throw new ArgumentException("Unexpected extra positional argument.");
-                    if (arg is "hook" or "clip") throw new ArgumentException($"{arg} mode is not implemented yet; use open.");
+                    if (arg == "hook") throw new ArgumentException("hook must be the first argument.");
+                    if (arg == "clip") throw new ArgumentException("clip mode is not implemented yet; use open.");
                     @base = arg;
                     break;
             }

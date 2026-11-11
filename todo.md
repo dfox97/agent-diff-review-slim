@@ -3,22 +3,24 @@
 Current usage and verification commands are in [README.md](README.md).
 Only unfinished work belongs here; Git history preserves the implementation plan.
 
-## Manual browser and pi acceptance
+## Manual browser acceptance
 
 - [ ] Verify Copy feedback in Edge and Chrome after the server-preview change.
 - [ ] Verify native app launch, Cancel, close, reload and completed-window behaviour.
-- [ ] Verify pi draft insertion without auto-send, Escape cancellation and
-  preservation of an existing editor draft. Browser Cancel/close must add nothing.
 - [ ] Run symlink/reparse rejection checks on a machine allowed to create links.
 - [ ] Check that `docs/review-window.png` matches the current plain-text UI.
 
-## Claude integration — after local pi acceptance
+## Live Claude acceptance
 
-- [ ] Verify the installed Claude version and hook contract; do not copy old settings.
-- [ ] Implement and document `hook` mode and supported context injection.
+The adapter matches the original repo's `UserPromptExpansion` contract. Protocol
+and reviewer checks are automated; Claude is not installed on the development PC.
+
+- [ ] Confirm the workplace Claude version supports `UserPromptExpansion` and its
+  context/block response contract before enabling the hook.
 - [ ] Verify non-empty feedback reaches Claude, while Cancel, close, empty feedback
   and errors block command expansion without starting a model turn.
-- [ ] Align the reviewer deadline with the configured hook timeout.
+- [ ] Verify the configured 600-second hook timeout leaves room for the reviewer's
+  at-most-570-second deadline in the actual Claude environment.
 
 ## Work-container and platform acceptance
 

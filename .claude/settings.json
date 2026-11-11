@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "UserPromptExpansion": [
+      {
+        "matcher": "diff-review",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "dotnet \"${CLAUDE_PROJECT_DIR}/artifacts/publish/diff-review-slim.dll\" hook",
+            "timeout": 600
+          }
+        ]
+      }
+    ]
+  }
+}
