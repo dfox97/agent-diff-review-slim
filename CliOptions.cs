@@ -17,7 +17,7 @@ public sealed record CliOptions(
           --port <0..65535>          Local port; 0 chooses a free port (default)
           --listen <IP>             Bind address (default: 127.0.0.1)
           --public-url <URL>        Private forwarded http://localhost:<port>/ URL
-          --browser edge|chrome|none  Best-effort local launch (Windows: edge)
+          --browser edge|chrome|none  Best-effort launch (default: Edge on Windows/WSL)
           --no-open                 Alias for --browser none
           --timeout-seconds <n>     Overall deadline, 1..3600 (default: 570)
           --grace-seconds <n>       Reconnect grace, 1..30 (default: 5)
@@ -38,7 +38,7 @@ public sealed record CliOptions(
         IPAddress listen = IPAddress.Loopback;
         int port = 0, timeout = 570, grace = 5;
         Uri? publicUrl = null;
-        string browser = OperatingSystem.IsWindows() ? "edge" : "none";
+        string browser = OperatingSystem.IsWindows() || HostBrowser.IsWsl ? "edge" : "none";
         bool help = false;
         int start = args.Length > 0 && args[0] == "open" ? 1 : 0;
         for (int i = start; i < args.Length; i++)

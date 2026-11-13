@@ -206,14 +206,23 @@ public static class Program
     private static void OpenBrowser(CliOptions options, string url)
     {
         if (options.Browser == "none") return;
-        if (!OperatingSystem.IsWindows())
+        bool windows = OperatingSystem.IsWindows();
+        if (!windows && !HostBrowser.IsWsl)
         {
             Console.Error.WriteLine("Automatic host-browser launch is not configured here; open the review URL on the host.");
             return;
         }
         try
         {
-            var start = new ProcessStartInfo(options.Browser == "edge" ? "msedge.exe" : "chrome.exe") { UseShellExecute = true };
+            string? executable = windows
+                ? options.Browser == "edge" ? "msedge.exe" : "chrome.exe"
+                : HostBrowser.WslExecutable(options.Browser);
+            if (executable is null)
+            {
+                Console.Error.WriteLine("Browser launch unavailable; open the review URL manually.");
+                return;
+            }
+            var start = new ProcessStartInfo(executable) { UseShellExecute = windows };
             start.ArgumentList.Add("--app=" + url);
             using var process = Process.Start(start);
         }

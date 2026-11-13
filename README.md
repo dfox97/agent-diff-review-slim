@@ -51,9 +51,10 @@ This compares the **merge base → HEAD**, excluding dirty and untracked files.
 including implicit lazy fetching, is performed. Obtain missing objects separately
 through your approved Git workflow.
 
-On Windows, launch tries Edge app mode; `--browser chrome` selects Chrome.
-`--no-open` disables launch. Elsewhere, or if launch fails, open the URL printed
-to stderr manually. See `--help` for all options.
+On Windows and WSL, launch tries Windows Edge app mode; `--browser chrome`
+selects Chrome. WSL uses Windows interop and the Windows PATH entries to find the
+browser. `--no-open` disables launch. Elsewhere, or if launch fails, open the URL
+printed to stderr manually. See `--help` for all options.
 
 ### Browser behaviour
 
@@ -131,7 +132,10 @@ Use the host-facing port in `--public-url` if different. The URL must be HTTP
 loopback, without credentials, path, query or fragment. The default bind is
 `127.0.0.1`. Add `--listen 0.0.0.0` only if forwarding requires it, keeping the
 host-facing port private/loopback. **Never expose this server to a LAN or public
-tunnel.** Automatic container-to-host browser opening is not configured.
+tunnel.** WSL2 normally needs no extra forwarding: Windows reaches the WSL
+loopback port through localhost forwarding. If that is disabled, use an approved
+private forward and `--public-url`. Automatic container-to-host browser opening
+is not configured.
 
 A held-open HTTP request tracks the browser. Disconnect cancels after a default
 5-second reconnect grace (`--grace-seconds`, 1–30); reload promptly to reconnect.
